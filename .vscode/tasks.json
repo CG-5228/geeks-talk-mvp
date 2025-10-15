@@ -1,0 +1,33 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Install deps",
+			"type": "shell",
+			"command": "npm",
+			"args": [
+				"install"
+			],
+			"problemMatcher": [
+				"$eslint-stylish"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Prisma migrate dev",
+			"type": "shell",
+			"command": "npx",
+			"args": [
+				"prisma",
+				"migrate",
+				"dev",
+				"-n",
+				"room_live_fields"
+			],
+			"problemMatcher": [
+				"$eslint-stylish"
+			],
+			"group": "build"
+		}
+	]
+}

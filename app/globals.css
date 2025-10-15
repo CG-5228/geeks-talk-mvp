@@ -1,0 +1,199 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Default to black theme values (fallback) */
+:root {
+  --bg: 220 20% 4%;
+  --fg: 210 24% 96%;
+  --bg-grad-from: 210 60% 6%;
+  --bg-grad-to: 220 30% 3%;
+  --nav-bg: 220 25% 6%;
+  --nav-border: 195 90% 70%;
+  --card-bg: 220 25% 8%;
+  --card-ring: 190 100% 60%;
+  --card-glow: 190 100% 50%;
+  --input-border: 200 30% 35%;
+  --input-focus: 190 100% 60%;
+  --primary: 190 100% 55%;
+  --primary-foreground: 220 15% 10%;
+  --particle-color: #00d4ff;
+  --grid-opacity: 0.08;
+  /* Overscroll edge color (fallback) */
+  --overscroll: 215 18% 10%;
+  /* Live chat surfaces and dividers */
+  --surface-0: hsl(215 22% 9%);
+  --surface-1: hsl(215 22% 11%);
+  --surface-2: hsl(215 22% 13%);
+  --divider: hsl(215 18% 22% / 0.22);
+  --header-h: 56px;
+  --subnav-h: 0px;
+  --rail: 56px;
+  --sidebar: 320px;
+  --details: 0px;
+  /* Pull-cord theme tokens */
+  --cord: hsl(210 14% 50%);
+  --cord-end: hsl(210 14% 65%);
+  --bulb-stroke: hsl(210 10% 72%);
+  --bulb-fill: hsla(200 80% 70% / 0.08);
+}
+
+/* Paint the viewport background to control rubber-band color */
+html {
+  min-height: 100%;
+  background-color: hsl(var(--overscroll));
+  color-scheme: dark;
+}
+
+html, body {
+  @apply h-full;
+  overscroll-behavior-y: contain;
+  scrollbar-gutter: stable both-edges;
+}
+
+body {
+  @apply antialiased;
+  min-height: 100vh;
+  background: transparent;
+}
+
+/* Base canvas gradient under particles */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(1200px 800px at 50% -200px, hsl(var(--bg-grad-from) / 0.45), transparent 60%),
+    linear-gradient(180deg, hsl(var(--bg-grad-from)), hsl(var(--bg-grad-to)));
+  background-attachment: fixed;
+}
+
+[data-theme="black"] {
+  --bg: 220 20% 4%;
+  --fg: 210 24% 96%;
+  --bg-grad-from: 210 60% 6%;
+  --bg-grad-to: 220 30% 3%;
+  --nav-bg: 220 25% 6%;
+  --nav-border: 195 90% 70%;
+  --card-bg: 220 25% 8%;
+  --card-ring: 190 100% 60%;
+  --card-glow: 190 100% 50%;
+  --input-border: 200 30% 35%;
+  --input-focus: 190 100% 60%;
+  --primary: 190 100% 55%;
+  --primary-foreground: 220 15% 10%;
+  --particle-color: #00d4ff;
+  --grid-opacity: 0.08;
+  --overscroll: 215 18% 10%;
+  --surface-0: hsl(215 22% 9%);
+  --surface-1: hsl(215 22% 11%);
+  --surface-2: hsl(215 22% 13%);
+  --divider: hsl(215 18% 22% / 0.22);
+  --header-h: 56px;
+  --subnav-h: 0px;
+  --rail: 56px;
+  --sidebar: 320px;
+  --details: 0px;
+  --cord: hsl(210 14% 50%);
+  --cord-end: hsl(210 14% 65%);
+  --bulb-stroke: hsl(210 10% 72%);
+  --bulb-fill: hsla(200 80% 70% / 0.08);
+}
+
+[data-theme="nix-dark"] {
+  --bg: 220 18% 5%;
+  --fg: 210 24% 96%;
+  --bg-grad-from: 210 40% 7%;
+  --bg-grad-to: 230 25% 4%;
+  --nav-bg: 215 28% 7%;
+  --nav-border: 150 60% 60%;
+  --card-bg: 215 26% 8%;
+  --card-ring: 155 70% 55%;
+  --card-glow: 155 80% 50%;
+  --input-border: 210 24% 36%;
+  --input-focus: 155 70% 55%;
+  --primary: 155 75% 55%;
+  --primary-foreground: 220 15% 10%;
+  --particle-color: #46ff9a;
+  --grid-opacity: 0.08;
+  --overscroll: 210 16% 9%;
+  --surface-0: hsl(215 22% 9%);
+  --surface-1: hsl(215 22% 11%);
+  --surface-2: hsl(215 22% 13%);
+  --divider: hsl(215 18% 22% / 0.22);
+  --header-h: 56px;
+  --subnav-h: 0px;
+  --rail: 56px;
+  --sidebar: 320px;
+  --details: 0px;
+  --cord: hsl(210 14% 50%);
+  --cord-end: hsl(210 14% 65%);
+  --bulb-stroke: hsl(210 10% 72%);
+  --bulb-fill: hsla(200 80% 70% / 0.08);
+}
+
+/* Glass utility */
+.glass {
+  @apply bg-white/60 backdrop-blur-md border border-white/20 shadow-glass;
+}
+
+/* Gradient animated bg helper */
+.bg-animated {
+  @apply bg-gradient-to-r from-blue-500 via-indigo-500 to-blue-500 bg-[length:200%_200%] animate-bg-pan;
+}
+
+/* Card base */
+.card {
+  @apply glass rounded-2xl p-4;
+}
+
+/* Input base */
+.input-base {
+  @apply w-full rounded-full border border-white/40 bg-white/70 backdrop-blur px-4 py-2 outline-none focus:ring-2 focus:ring-blue-400/60 placeholder:text-gray-500;
+}
+
+/* Button base */
+.btn {
+  @apply inline-flex items-center justify-center rounded-md px-4 py-2 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2;
+}
+.btn-primary {
+  @apply btn bg-blue-600 text-white hover:bg-blue-700 focus:ring-blue-500;
+}
+.btn-glow {
+  @apply btn text-white bg-gradient-to-r from-blue-600 to-indigo-600 shadow-lg hover:from-blue-500 hover:to-indigo-500 animate-pulse-glow;
+}
+
+@layer utilities {
+  .shadow-glass { box-shadow: 0 8px 30px rgba(2, 6, 23, 0.18), inset 0 1px 0 rgba(255,255,255,0.1); }
+  .grid-overlay { position: fixed; inset: 0; z-index: -1; pointer-events: none; }
+}
+
+/* Neon keyframes */
+@keyframes neon-enter {
+  0% { opacity: 0; transform: perspective(1000px) rotateX(12deg) translateY(24px) scale(0.98); }
+  100% { opacity: 1; transform: perspective(1000px) rotateX(0deg) translateY(0) scale(1); }
+}
+
+@keyframes shimmer-line {
+  0% { transform: translateX(-100%); opacity: 0; }
+  50% { opacity: 1; }
+  100% { transform: translateX(100%); opacity: 0; }
+}
+
+@keyframes neon-sweep {
+  0% { background-position: 0% 50%; }
+  100% { background-position: 100% 50%; }
+}
+
+.animate-neon-enter { animation: neon-enter 900ms cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+.animate-shimmer-line { animation: shimmer-line 1.2s ease-in-out; }
+.animate-neon-sweep { animation: neon-sweep 1.8s linear infinite alternate; }
+
+/* Scan line animation for inputs */
+@keyframes scanLine {
+  0% { transform: translateX(-100%); }
+  50% { transform: translateX(100%); }
+  100% { transform: translateX(-100%); }
+}
