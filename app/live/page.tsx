@@ -1,11 +1,13 @@
 "use client";
 
-import { useState } from 'react';
+import { useState, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import LiveLayout from '@/components/live/LiveLayout';
 import ChatDashboard from './ChatDashboard';
 
-export default function LivePage() {
+export const dynamic = 'force-dynamic';
+
+function LivePageContent() {
   const params = useSearchParams();
   const tabParam = (params.get('tab') as 'text' | 'voice' | 'tutorials') || 'text';
   const channelParam = params.get('channel');
@@ -19,5 +21,13 @@ export default function LivePage() {
         <LiveLayout activeTab={tabParam} selectedSlug={channelSlug} onSelectSlug={setChannelSlug} />
       )}
     </div>
+  );
+}
+
+export default function LivePage() {
+  return (
+    <Suspense fallback={<div className="w-full overflow-hidden">Loading...</div>}>
+      <LivePageContent />
+    </Suspense>
   );
 }

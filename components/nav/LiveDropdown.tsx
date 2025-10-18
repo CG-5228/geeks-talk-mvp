@@ -132,11 +132,11 @@ export default function LiveDropdown({ triggerRef }: Props) {
 
   // Keyboard roving + focus trap
   const items = useMemo(() => [
-    { label: 'Text Chat', href: '/live?tab=text', icon: MessageSquare },
-    { label: 'Voice Chat', href: '/live?tab=voice', icon: Mic },
+    { label: 'Text Chat', href: '/live', icon: MessageSquare },
+    { label: 'Voice Chat', href: '/voice', icon: Mic },
     { label: 'Tutorial Videos', href: '/live?tab=tutorials', icon: PlaySquare },
   ], []);
-  const currentTab = (params.get('tab') as 'text' | 'voice' | 'tutorials') || 'text';
+  const currentTab = pathname === '/voice' ? 'voice' : pathname === '/live' ? 'text' : pathname.includes('tutorials') ? 'tutorials' : 'text';
   const listRef = useRef<HTMLDivElement>(null);
 
   const focusItem = (idx: number) => {
@@ -226,7 +226,9 @@ export default function LiveDropdown({ triggerRef }: Props) {
           >
             {items.map((it) => {
               const Icon = it.icon;
-              const active = it.href.includes(`tab=${currentTab}`);
+              const active = (currentTab === 'voice' && it.href === '/voice') || 
+                             (currentTab === 'text' && it.href === '/live') ||
+                             (currentTab === 'tutorials' && it.href.includes('tab=tutorials'));
               return (
                 <Link
                   key={it.href}

@@ -4,9 +4,19 @@ import { rateLimit } from '@/lib/rateLimit';
 import { moderateMessage } from '@/lib/moderation';
 
 export async function POST(request: Request) {
-    const { authorId, content, roomId } = await request.json();
-    if (!authorId || !content || !roomId) {
-        return NextResponse.json({ error: 'Missing authorId, roomId, or content' }, { status: 400 });
+    let authorId, content, roomId;
+    
+    try {
+        const body = await request.json();
+        authorId = body.authorId;
+        content = body.content;
+        roomId = body.roomId;
+        
+        if (!authorId || !content || !roomId) {
+            return NextResponse.json({ error: 'Missing authorId, roomId, or content' }, { status: 400 });
+        }
+    } catch (error) {
+        return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
     }
 
     const rl = rateLimit(`messages:${authorId}`);

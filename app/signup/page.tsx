@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { RegisterSchema } from '@/lib/validators';
 import { signIn, useSession } from 'next-auth/react';
@@ -13,9 +13,17 @@ import ParticlesBackground from '@/components/auth/ParticlesBackground';
 export default function SignUpPage() {
   const { data: session } = useSession();
   const router = useRouter();
-  const [form, setForm] = useState({ username: '', email: '', password: '', confirmPassword: '', terms: false });
+  const [form, setForm] = useState({ username: '', email: '', password: '', confirmPassword: '', code: '', terms: false });
   const [errors, setErrors] = useState<Record<string, string[]>>({});
   const [loading, setLoading] = useState(false);
+  const [codePending, setCodePending] = useState(false);
+  const [cooldown, setCooldown] = useState(0);
+
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const id = setInterval(() => setCooldown((c) => c - 1), 1000);
+    return () => clearInterval(id);
+  }, [cooldown]);
 
   if (session?.user) {
     router.replace('/profile');
@@ -42,7 +50,7 @@ export default function SignUpPage() {
       const res = await fetch('/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(parsed.data),
+        body: JSON.stringify({ ...parsed.data, code: form.code }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -54,6 +62,34 @@ export default function SignUpPage() {
       setErrors({ form: ['Unexpected error. Please try again.'] });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const allowedDomains = ['icloud.com','gmail.com','outlook.com','yahoo.com','qq.com'];
+  const canRequestCode = () => {
+    const domain = form.email.split('@')[1]?.toLowerCase();
+    return !!domain && allowedDomains.includes(domain);
+  };
+
+  const requestCode = async () => {
+    setErrors((e) => ({ ...e, code: [] } as any));
+    if (!canRequestCode()) {
+      setErrors((e) => ({ ...e, email: ['Only icloud/gmail/outlook/yahoo/qq are allowed'] } as any));
+      return;
+    }
+    setCodePending(true);
+    try {
+      const res = await fetch('/api/auth/request-code', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: form.email, purpose: 'signup' })
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        setErrors((e) => ({ ...e, code: [d.error || 'Failed to send code'] } as any));
+      } else {
+        setCooldown(60);
+      }
+    } finally {
+      setCodePending(false);
     }
   };
 
@@ -125,10 +161,37 @@ export default function SignUpPage() {
             />
             {errors.confirmPassword && <p className="text-sm text-red-300">{errors.confirmPassword[0]}</p>}
 
-            <div className="flex items-center gap-2">
-              <input id="terms" name="terms" type="checkbox" checked={form.terms} onChange={onChange} className="h-4 w-4" />
-              <label htmlFor="terms" className="text-sm text-[rgba(220,240,255,0.9)]">I agree to the Terms and Privacy Policy</label>
+            {/* Verification code */}
+            <div>
+              <label className="block text-sm text-[rgba(220,240,255,0.85)] mb-1">Verification code</label>
+              <div className="flex gap-2">
+                <input
+                  name="code"
+                  value={form.code}
+                  onChange={onChange}
+                  inputMode="numeric"
+                  placeholder="6-digit code"
+                  className="flex-1 rounded-md px-3 py-2 bg-white/5 ring-1 ring-[color:var(--nav-border)]/20"
+                />
+                <button type="button" onClick={requestCode} disabled={codePending || cooldown>0 || !canRequestCode()} className="px-3 py-2 rounded-md bg-[#00d4ff] text-[#00101a] disabled:opacity-50">
+                  {cooldown>0 ? `Get (${cooldown})` : (codePending ? 'Sending…' : 'Get code')}
+                </button>
+              </div>
+              {errors.code && <p className="text-sm text-red-300 mt-1">{errors.code[0]}</p>}
+              {!canRequestCode() && form.email && <p className="text-xs text-amber-300 mt-1">Allowed: icloud, gmail, outlook, yahoo, qq</p>}
             </div>
+
+            <label htmlFor="terms" className="inline-flex items-center gap-2 select-none cursor-pointer">
+              <input id="terms" name="terms" type="checkbox" checked={form.terms} onChange={onChange} className="peer sr-only" />
+              <span className={`h-4 w-4 inline-flex items-center justify-center rounded border transition-colors ${form.terms ? 'border-blue-400' : 'border-gray-400'}`}>
+                {form.terms && (
+                  <svg className="block h-3 w-3 text-blue-400" viewBox="0 0 20 20" fill="currentColor" aria-hidden>
+                    <path fillRule="evenodd" d="M16.704 5.29a1 1 0 010 1.42l-7.2 7.2a1 1 0 01-1.415 0l-3.2-3.2a1 1 0 011.415-1.42l2.492 2.492 6.492-6.492a1 1 0 011.416 0z" clipRule="evenodd" />
+                  </svg>
+                )}
+              </span>
+              <span className="text-sm text-[rgba(220,240,255,0.9)]">I agree to the Terms and Privacy Policy</span>
+            </label>
             {errors.terms && <p className="text-sm text-red-300">{errors.terms[0]}</p>}
 
             <button

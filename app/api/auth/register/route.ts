@@ -3,6 +3,7 @@ import { RegisterSchema } from '@/lib/validators';
 import { db } from '@/lib/db';
 import { hashPassword } from '@/lib/password';
 import { rateLimit } from '@/lib/rateLimit';
+import { isAllowedEmailDomain, verifyAndConsumeEmailCode } from '@/lib/verification';
 
 export async function POST(req: Request) {
   const ip = req.headers.get('x-forwarded-for') || 'local';
@@ -18,7 +19,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Validation failed', fieldErrors }, { status: 400 });
   }
 
-  const { username, email, password } = parse.data;
+  const { username, email, password, code } = (parse.data as any);
+
+  if (!isAllowedEmailDomain(email)) {
+    return NextResponse.json({ error: 'Email provider not supported', fieldErrors: { email: ['Only icloud/gmail/outlook/yahoo/qq are allowed'] } }, { status: 400 });
+  }
 
   // Ensure unique username and email
   const existingEmail = await db.user.findUnique({ where: { email } });
@@ -28,6 +33,15 @@ export async function POST(req: Request) {
   const existingUser = await db.user.findUnique({ where: { username } });
   if (existingUser) {
     return NextResponse.json({ error: 'Username already in use', fieldErrors: { username: ['Username already in use'] } }, { status: 409 });
+  }
+
+  // Require verified code
+  if (!code) {
+    return NextResponse.json({ error: 'Verification code required', fieldErrors: { code: ['Verification code required'] } }, { status: 400 });
+  }
+  const verification = await verifyAndConsumeEmailCode(email, 'signup', code);
+  if (!verification.ok) {
+    return NextResponse.json({ error: 'Invalid verification code', fieldErrors: { code: ['Invalid or expired code'] } }, { status: 400 });
   }
 
   const hashed = await hashPassword(password);

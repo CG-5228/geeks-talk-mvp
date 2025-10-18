@@ -80,6 +80,12 @@ export default function SignInPage() {
             Sign up
           </Link>
         </p>
+        <p className="text-center text-sm text-[rgba(220,240,255,0.8)] mt-2">
+          Forgot your password? {" "}
+          <Link href="/reset" className="text-[#00d4ff] hover:[text-shadow:0_0_10px_rgba(0,212,255,0.6)] underline-offset-4 hover:underline">
+            Reset it
+          </Link>
+        </p>
       </div>
       </NeonAuthShell>
     </div>

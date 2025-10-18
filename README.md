@@ -1,14 +1,19 @@
 # Geeks Talk MVP
 
-Geeks Talk is a real-time chat and voice communication platform designed for discussions around various subjects. This project is built using Next.js 14 with TypeScript, Prisma for database management, and Tailwind CSS for styling.
+Geeks Talk is a comprehensive real-time chat and voice communication platform designed for discussions around various subjects. This project is built using Next.js 14 with TypeScript, Prisma for database management, and Tailwind CSS for styling.
 
 ## Features
 
-- **Real-time Chat**: Users can send and receive messages instantly in chat rooms.
-- **Voice Rooms**: Users can join voice rooms for live discussions.
-- **Authentication**: Secure user authentication using GitHub and email providers.
-- **Moderation**: Built-in moderation tools to ensure a safe chatting environment.
-- **Responsive Design**: Fully responsive UI built with Tailwind CSS.
+- **Real-time Chat**: Users can send and receive messages instantly in chat rooms with live typing indicators
+- **Voice Rooms**: Advanced voice chat with group management, collaborative whiteboard, and document editing
+- **Collaborative Canvas**: Real-time whiteboard with tldraw integration for drawing and file annotation
+- **Document Collaboration**: Google Docs-like collaborative editing with TipTap and Yjs
+- **File Management**: Upload and share files with S3 integration
+- **Authentication**: Secure user authentication using Google OAuth and email/password
+- **Email Verification**: Email-based verification system with Resend API
+- **Moderation**: Built-in moderation tools and user reporting system
+- **Responsive Design**: Fully responsive UI built with Tailwind CSS
+- **Voice Features**: Push-to-talk, click-to-talk, vote-kick polls, and group management
 
 ## Project Structure
 
@@ -40,40 +45,253 @@ geeks-talk-mvp
 
 ### Prerequisites
 
-- Node.js (version 14 or higher)
+- Node.js (version 18 or higher)
 - npm or yarn
-- A PostgreSQL database (or any other supported database)
+- PostgreSQL database (version 13 or higher)
+- AWS S3 bucket (for file uploads)
+- LiveKit server (for voice chat)
+- SMTP email service or Resend API account
 
 ### Installation
 
 1. Clone the repository:
-   ```
+   ```bash
    git clone https://github.com/yourusername/geeks-talk-mvp.git
    cd geeks-talk-mvp
    ```
 
 2. Install dependencies:
-   ```
-   npm install
+   ```bash
+   npm install --legacy-peer-deps
    ```
 
 3. Set up your environment variables:
-   - Copy `.env.example` to `.env` and fill in the required values.
+   Create a `.env` file in the root directory with the following variables:
+
+   ```env
+   # Database
+   DATABASE_URL="postgresql://username:password@localhost:5432/geekstalk_db"
+
+   # NextAuth.js
+   NEXTAUTH_URL="http://localhost:3000"
+   NEXTAUTH_SECRET="your-nextauth-secret-key-here"
+
+   # Google OAuth (Optional - for Google sign-in)
+   GOOGLE_CLIENT_ID="your-google-client-id"
+   GOOGLE_CLIENT_SECRET="your-google-client-secret"
+
+   # Email Configuration (SMTP)
+   SMTP_HOST="smtp.gmail.com"
+   SMTP_PORT="587"
+   SMTP_USER="your-email@gmail.com"
+   SMTP_PASS="your-app-password"
+   EMAIL_FROM="no-reply@geekstalk.co"
+   EMAIL_TO="admin@geekstalk.co"
+
+   # Resend API (Alternative to SMTP for verification emails)
+   RESEND_API_KEY="your-resend-api-key"
+   EMAIL_NO_REPLY="no-reply@geekstalk.co"
+
+   # AWS S3 (for file uploads)
+   AWS_ACCESS_KEY_ID="your-aws-access-key"
+   AWS_SECRET_ACCESS_KEY="your-aws-secret-key"
+   AWS_REGION="us-east-1"
+   AWS_S3_BUCKET="geekstalk-uploads-prod"
+
+   # LiveKit (for voice chat)
+   LIVEKIT_API_KEY="your-livekit-api-key"
+   LIVEKIT_API_SECRET="your-livekit-api-secret"
+   LIVEKIT_URL="wss://your-livekit-server.com"
+
+   # Social Media Links (Optional)
+   NEXT_PUBLIC_INSTAGRAM_URL="https://instagram.com/yourusername"
+   NEXT_PUBLIC_X_URL="https://x.com/yourusername"
+   NEXT_PUBLIC_DISCORD_URL="https://discord.gg/yourinvite"
+   NEXT_PUBLIC_FACEBOOK_URL="https://facebook.com/yourpage"
+   NEXT_PUBLIC_YOUTUBE_URL="https://youtube.com/@yourchannel"
+   ```
 
 4. Run the Prisma migrations:
-   ```
+   ```bash
    npx prisma migrate dev
    ```
 
-5. Start the development server:
+5. Generate Prisma client:
+   ```bash
+   npx prisma generate
    ```
+
+### Prisma commands
+
+- To sync schema without losing data in dev:
+  ```
+  npx prisma db push
+  ```
+- To create a migration:
+  ```
+  npx prisma migrate dev -n contact_and_bug_models
+  ```
+
+6. Start the development server:
+   ```bash
    npm run dev
    ```
 
 ### Usage
 
-- Navigate to `http://localhost:3000` to access the application.
-- Use the authentication options to log in and start chatting or joining voice rooms.
+- Navigate to `http://localhost:3000` to access the application
+- Use the authentication options to log in and start chatting or joining voice rooms
+- Create channels, join voice groups, and collaborate on documents in real-time
+
+## Production Deployment
+
+### Server Requirements
+
+- **Node.js**: Version 18 or higher
+- **PostgreSQL**: Version 13 or higher
+- **Memory**: Minimum 2GB RAM (4GB recommended)
+- **Storage**: Minimum 20GB SSD
+- **Network**: Stable internet connection
+
+### Deployment Steps
+
+1. **Prepare your server:**
+   ```bash
+   # Update system packages
+   sudo apt update && sudo apt upgrade -y
+   
+   # Install Node.js 18
+   curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+   sudo apt-get install -y nodejs
+   
+   # Install PostgreSQL
+   sudo apt install postgresql postgresql-contrib -y
+   
+   # Install PM2 for process management
+   sudo npm install -g pm2
+   ```
+
+2. **Set up PostgreSQL:**
+   ```bash
+   sudo -u postgres psql
+   CREATE DATABASE geekstalk_db;
+   CREATE USER geekstalk_user WITH PASSWORD 'your_secure_password';
+   GRANT ALL PRIVILEGES ON DATABASE geekstalk_db TO geekstalk_user;
+   \q
+   ```
+
+3. **Deploy the application:**
+   ```bash
+   # Clone your repository
+   git clone https://github.com/yourusername/geeks-talk-mvp.git
+   cd geeks-talk-mvp
+   
+   # Install dependencies
+   npm install --legacy-peer-deps
+   
+   # Set up environment variables
+   cp .env.example .env
+   # Edit .env with your production values
+   
+   # Run database migrations
+   npx prisma migrate deploy
+   npx prisma generate
+   
+   # Build the application
+   npm run build
+   ```
+
+4. **Start with PM2:**
+   ```bash
+   # Create PM2 ecosystem file
+   cat > ecosystem.config.js << EOF
+   module.exports = {
+     apps: [{
+       name: 'geeks-talk',
+       script: 'npm',
+       args: 'start',
+       cwd: '/path/to/your/app',
+       instances: 'max',
+       exec_mode: 'cluster',
+       env: {
+         NODE_ENV: 'production',
+         PORT: 3000
+       }
+     }]
+   }
+   EOF
+   
+   # Start the application
+   pm2 start ecosystem.config.js
+   pm2 save
+   pm2 startup
+   ```
+
+5. **Set up Nginx (optional but recommended):**
+   ```bash
+   sudo apt install nginx -y
+   
+   # Create Nginx configuration
+   sudo nano /etc/nginx/sites-available/geeks-talk
+   ```
+   
+   Add the following configuration:
+   ```nginx
+   server {
+       listen 80;
+       server_name your-domain.com;
+       
+       location / {
+           proxy_pass http://localhost:3000;
+           proxy_http_version 1.1;
+           proxy_set_header Upgrade $http_upgrade;
+           proxy_set_header Connection 'upgrade';
+           proxy_set_header Host $host;
+           proxy_set_header X-Real-IP $remote_addr;
+           proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+           proxy_set_header X-Forwarded-Proto $scheme;
+           proxy_cache_bypass $http_upgrade;
+       }
+   }
+   ```
+   
+   ```bash
+   # Enable the site
+   sudo ln -s /etc/nginx/sites-available/geeks-talk /etc/nginx/sites-enabled/
+   sudo nginx -t
+   sudo systemctl restart nginx
+   ```
+
+6. **Set up SSL with Let's Encrypt:**
+   ```bash
+   sudo apt install certbot python3-certbot-nginx -y
+   sudo certbot --nginx -d your-domain.com
+   ```
+
+### Environment Variables for Production
+
+Make sure to set these environment variables in your production environment:
+
+- `NODE_ENV=production`
+- `NEXTAUTH_URL=https://your-domain.com`
+- `NEXTAUTH_SECRET` (generate a secure random string)
+- All database, email, AWS, and LiveKit credentials
+
+### Monitoring and Maintenance
+
+- **Logs**: `pm2 logs geeks-talk`
+- **Status**: `pm2 status`
+- **Restart**: `pm2 restart geeks-talk`
+- **Database backups**: Set up regular PostgreSQL backups
+- **SSL renewal**: Certbot will auto-renew, but monitor the process
+
+### Troubleshooting
+
+1. **Database connection issues**: Check PostgreSQL service and connection string
+2. **Email not working**: Verify SMTP credentials or Resend API key
+3. **File uploads failing**: Check AWS S3 credentials and bucket permissions
+4. **Voice chat not working**: Verify LiveKit server configuration
+5. **Build failures**: Ensure all dependencies are installed with `--legacy-peer-deps`
 
 ## Contributing
 

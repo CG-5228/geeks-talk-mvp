@@ -5,7 +5,7 @@ import { useSession } from 'next-auth/react';
 import Image from 'next/image';
 import ThemeSwitch from './ThemeSwitch';
 import UserMenu from './header/UserMenu';
-import { useRef } from 'react';
+import { useRef, Suspense } from 'react';
 import LiveDropdown from './nav/LiveDropdown';
 
 export default function Header() {
@@ -50,7 +50,9 @@ export default function Header() {
             >
               Live
             </button>
-            <LiveDropdown triggerRef={liveBtnRef as any} />
+            <Suspense fallback={null}>
+              <LiveDropdown triggerRef={liveBtnRef as any} />
+            </Suspense>
             {!session?.user ? (
               <>
                 <Link href="/signup" className="btn-primary rounded-full px-4 py-2">Sign up</Link>

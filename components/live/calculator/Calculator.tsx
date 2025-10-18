@@ -1,6 +1,6 @@
 "use client";
-import { useState, useCallback } from 'react';
-import { Calculator as CalculatorIcon, X, RotateCcw } from 'lucide-react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
+import { Calculator as CalculatorIcon, X, RotateCcw, GripVertical } from 'lucide-react';
 
 type CalculatorMode = 'Basic' | 'Scientific' | 'Programmer';
 type NumberBase = 'DEC' | 'HEX' | 'OCT' | 'BIN';
@@ -70,6 +70,11 @@ export default function Calculator({ isOpen, onClose, onResult }: CalculatorProp
   const [operation, setOperation] = useState<string | null>(null);
   const [waitingForOperand, setWaitingForOperand] = useState(false);
   const [memory, setMemory] = useState(0);
+  const [expression, setExpression] = useState(''); // Track the full expression for scientific mode
+  const [position, setPosition] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const calculatorRef = useRef<HTMLDivElement>(null);
   
   // Programmer mode specific state
   const [numberBase, setNumberBase] = useState<NumberBase>('DEC');
@@ -111,8 +116,25 @@ export default function Calculator({ isOpen, onClose, onResult }: CalculatorProp
         setCurrentValue(newValue);
         setDisplay(convertToBase(newValue, numberBase));
       }
+    } else if (mode === 'Scientific') {
+      // Handle scientific mode - build expression
+      if (waitingForOperand) {
+        // If waiting for operand, append to the existing expression
+        const newExpression = expression + num;
+        setDisplay(newExpression);
+        setExpression(newExpression);
+        setWaitingForOperand(false);
+      } else {
+        if (display === '0') {
+          setDisplay(num);
+          setExpression(num);
+        } else {
+          setDisplay(display + num);
+          setExpression(expression + num);
+        }
+      }
     } else {
-      // Handle basic/scientific mode
+      // Handle basic mode
       if (waitingForOperand) {
         setDisplay(num);
         setWaitingForOperand(false);
@@ -120,7 +142,7 @@ export default function Calculator({ isOpen, onClose, onResult }: CalculatorProp
         setDisplay(display === '0' ? num : display + num);
       }
     }
-  }, [display, waitingForOperand, mode, numberBase, convertToBase, convertFromBase]);
+  }, [display, waitingForOperand, mode, numberBase, convertToBase, convertFromBase, expression]);
 
   const getBaseMultiplier = (base: NumberBase): number => {
     switch (base) {
@@ -147,24 +169,35 @@ export default function Calculator({ isOpen, onClose, onResult }: CalculatorProp
     setPreviousValue(null);
     setOperation(null);
     setWaitingForOperand(false);
+    setExpression('');
   }, []);
 
   const performOperation = useCallback((nextOperation: string) => {
-    const inputValue = parseFloat(display);
+    if (mode === 'Scientific') {
+      // For scientific mode, just add the operation to the expression without calculating
+      const newExpression = expression + nextOperation;
+      setExpression(newExpression);
+      setDisplay(newExpression);
+      setWaitingForOperand(true);
+      setOperation(nextOperation);
+    } else {
+      // Handle basic mode as before
+      const inputValue = parseFloat(display);
+      
+      if (previousValue === null) {
+        setPreviousValue(inputValue);
+      } else if (operation) {
+        const currentValue = previousValue || 0;
+        const newValue = calculate(currentValue, inputValue, operation);
 
-    if (previousValue === null) {
-      setPreviousValue(inputValue);
-    } else if (operation) {
-      const currentValue = previousValue || 0;
-      const newValue = calculate(currentValue, inputValue, operation);
+        setDisplay(String(newValue));
+        setPreviousValue(newValue);
+      }
 
-      setDisplay(String(newValue));
-      setPreviousValue(newValue);
+      setWaitingForOperand(true);
+      setOperation(nextOperation);
     }
-
-    setWaitingForOperand(true);
-    setOperation(nextOperation);
-  }, [display, previousValue, operation]);
+  }, [display, previousValue, operation, mode, expression]);
 
   const calculate = (firstValue: number, secondValue: number, operation: string): number => {
     switch (operation) {
@@ -186,16 +219,47 @@ export default function Calculator({ isOpen, onClose, onResult }: CalculatorProp
   };
 
   const handleEquals = useCallback(() => {
-    const inputValue = parseFloat(display);
+    if (mode === 'Scientific') {
+      // Evaluate the expression for scientific mode
+      try {
+        // Replace display symbols with JavaScript operators
+        let evalExpression = expression
+          .replace(/×/g, '*')
+          .replace(/÷/g, '/')
+          .replace(/\^/g, '**')
+          .replace(/π/g, Math.PI.toString())
+          .replace(/e/g, Math.E.toString());
+        
+        // Handle scientific functions
+        evalExpression = evalExpression
+          .replace(/sin\(/g, 'Math.sin(')
+          .replace(/cos\(/g, 'Math.cos(')
+          .replace(/tan\(/g, 'Math.tan(')
+          .replace(/log\(/g, 'Math.log10(')
+          .replace(/ln\(/g, 'Math.log(')
+          .replace(/√\(/g, 'Math.sqrt(');
+        
+        const result = Function('"use strict"; return (' + evalExpression + ')')();
+        setDisplay(String(result));
+        setExpression(String(result));
+        setWaitingForOperand(true);
+      } catch (error) {
+        setDisplay('Error');
+        setExpression('');
+      }
+    } else {
+      // Handle basic mode as before
+      const inputValue = parseFloat(display);
 
-    if (previousValue !== null && operation) {
-      const newValue = calculate(previousValue, inputValue, operation);
-      setDisplay(String(newValue));
-      setPreviousValue(null);
-      setOperation(null);
-      setWaitingForOperand(true);
+      if (previousValue !== null && operation) {
+        const newValue = calculate(previousValue, inputValue, operation);
+        setDisplay(String(newValue));
+        setPreviousValue(null);
+        setOperation(null);
+        setWaitingForOperand(true);
+      }
     }
-  }, [display, previousValue, operation]);
+  }, [display, previousValue, operation, mode, expression]);
 
   const handleMemoryOperation = useCallback((op: string) => {
     const currentValue = parseFloat(display);
@@ -208,28 +272,54 @@ export default function Calculator({ isOpen, onClose, onResult }: CalculatorProp
   }, [display, memory]);
 
   const handleScientificFunction = useCallback((func: string) => {
-    const currentValue = parseFloat(display);
-    let result: number;
+    if (mode === 'Scientific') {
+      // For scientific mode, add the function to the expression without calculating
+      let funcExpression = '';
+      switch (func) {
+        case 'sin': funcExpression = 'sin('; break;
+        case 'cos': funcExpression = 'cos('; break;
+        case 'tan': funcExpression = 'tan('; break;
+        case 'log': funcExpression = 'log('; break;
+        case 'ln': funcExpression = 'ln('; break;
+        case '√': funcExpression = '√('; break;
+        case 'x²': funcExpression = '^2'; break;
+        case 'x³': funcExpression = '^3'; break;
+        case '1/x': funcExpression = '^(-1)'; break;
+        case 'x!': funcExpression = '!'; break;
+        case 'π': funcExpression = 'π'; break;
+        case 'e': funcExpression = 'e'; break;
+        default: funcExpression = '';
+      }
+      
+      const newExpression = expression + funcExpression;
+      setExpression(newExpression);
+      setDisplay(newExpression);
+      setWaitingForOperand(true);
+    } else {
+      // Handle basic mode as before
+      const currentValue = parseFloat(display);
+      let result: number;
 
-    switch (func) {
-      case 'sin': result = Math.sin(currentValue * Math.PI / 180); break;
-      case 'cos': result = Math.cos(currentValue * Math.PI / 180); break;
-      case 'tan': result = Math.tan(currentValue * Math.PI / 180); break;
-      case 'log': result = Math.log10(currentValue); break;
-      case 'ln': result = Math.log(currentValue); break;
-      case '√': result = Math.sqrt(currentValue); break;
-      case 'x²': result = currentValue * currentValue; break;
-      case 'x³': result = currentValue * currentValue * currentValue; break;
-      case '1/x': result = 1 / currentValue; break;
-      case 'x!': result = factorial(currentValue); break;
-      case 'π': result = Math.PI; break;
-      case 'e': result = Math.E; break;
-      default: result = currentValue;
+      switch (func) {
+        case 'sin': result = Math.sin(currentValue * Math.PI / 180); break;
+        case 'cos': result = Math.cos(currentValue * Math.PI / 180); break;
+        case 'tan': result = Math.tan(currentValue * Math.PI / 180); break;
+        case 'log': result = Math.log10(currentValue); break;
+        case 'ln': result = Math.log(currentValue); break;
+        case '√': result = Math.sqrt(currentValue); break;
+        case 'x²': result = currentValue * currentValue; break;
+        case 'x³': result = currentValue * currentValue * currentValue; break;
+        case '1/x': result = 1 / currentValue; break;
+        case 'x!': result = factorial(currentValue); break;
+        case 'π': result = Math.PI; break;
+        case 'e': result = Math.E; break;
+        default: result = currentValue;
+      }
+
+      setDisplay(String(result));
+      setWaitingForOperand(true);
     }
-
-    setDisplay(String(result));
-    setWaitingForOperand(true);
-  }, [display]);
+  }, [display, mode, expression]);
 
   const factorial = (n: number): number => {
     if (n < 0) return NaN;
@@ -358,6 +448,49 @@ export default function Calculator({ isOpen, onClose, onResult }: CalculatorProp
     onClose();
   }, [display, onResult, onClose]);
 
+  // Drag functionality
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    if (e.target === e.currentTarget || (e.target as HTMLElement).closest('[data-drag-handle]')) {
+      setIsDragging(true);
+      setDragStart({
+        x: e.clientX - position.x,
+        y: e.clientY - position.y
+      });
+    }
+  }, [position]);
+
+  const handleMouseMove = useCallback((e: MouseEvent) => {
+    if (isDragging) {
+      const newX = e.clientX - dragStart.x;
+      const newY = e.clientY - dragStart.y;
+      
+      // Keep within viewport bounds
+      const maxX = window.innerWidth - (calculatorRef.current?.offsetWidth || 0);
+      const maxY = window.innerHeight - (calculatorRef.current?.offsetHeight || 0);
+      
+      setPosition({
+        x: Math.max(0, Math.min(newX, maxX)),
+        y: Math.max(0, Math.min(newY, maxY))
+      });
+    }
+  }, [isDragging, dragStart]);
+
+  const handleMouseUp = useCallback(() => {
+    setIsDragging(false);
+  }, []);
+
+  // Add event listeners for dragging
+  useEffect(() => {
+    if (isDragging) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+      return () => {
+        document.removeEventListener('mousemove', handleMouseMove);
+        document.removeEventListener('mouseup', handleMouseUp);
+      };
+    }
+  }, [isDragging, handleMouseMove, handleMouseUp]);
+
   if (!isOpen) return null;
 
   const basicButtons = [
@@ -365,7 +498,7 @@ export default function Calculator({ isOpen, onClose, onResult }: CalculatorProp
     ['7', '8', '9', '×'],
     ['4', '5', '6', '-'],
     ['1', '2', '3', '+'],
-    ['0', '.', '=', '=']
+    ['0', '.', '=']
   ];
 
   const scientificButtons = [
@@ -376,7 +509,7 @@ export default function Calculator({ isOpen, onClose, onResult }: CalculatorProp
     ['7', '8', '9', '×'],
     ['4', '5', '6', '-'],
     ['1', '2', '3', '+'],
-    ['0', '.', '=', '=']
+    ['0', '.', '=']
   ];
 
   const programmerButtons = [
@@ -432,23 +565,50 @@ export default function Calculator({ isOpen, onClose, onResult }: CalculatorProp
       // Switch to basic mode
       setMode('Basic');
     } else if (button === '(' || button === ')') {
-      // Handle parentheses - for now just ignore or could implement expression parsing
-      // Parentheses functionality can be added in future updates
+      // Handle parentheses - add to display for expression building
+      if (mode === 'Scientific') {
+        if (waitingForOperand) {
+          setDisplay(button);
+          setExpression(button);
+          setWaitingForOperand(false);
+        } else {
+          setDisplay(display + button);
+          setExpression(expression + button);
+        }
+      } else {
+        if (waitingForOperand) {
+          setDisplay(button);
+          setWaitingForOperand(false);
+        } else {
+          setDisplay(display + button);
+        }
+      }
     }
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-card/95 backdrop-blur-xl border border-border/20 rounded-2xl w-[28rem] max-w-[95vw] shadow-2xl overflow-hidden">
+    <div 
+      ref={calculatorRef}
+      className="fixed z-50 cursor-move select-none"
+      style={{ 
+        left: position.x, 
+        top: position.y,
+        transform: isDragging ? 'scale(1.02)' : 'scale(1)',
+        transition: isDragging ? 'none' : 'transform 0.2s ease'
+      }}
+      onMouseDown={handleMouseDown}
+    >
+      <div className="bg-card/95 backdrop-blur-xl border border-border/20 rounded-2xl shadow-2xl overflow-hidden max-h-[90vh] overflow-y-auto" style={{ width: mode === 'Programmer' ? '32rem' : '28rem', maxWidth: '90vw' }}>
         {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-border/20">
+        <div className="flex items-center justify-between p-4 border-b border-border/20" data-drag-handle>
           <div className="flex items-center gap-2">
+            <GripVertical className="w-4 h-4 text-muted-foreground" />
             <CalculatorIcon className="w-5 h-5 text-primary" />
             <span className="font-semibold text-foreground">Calculator</span>
           </div>
           <button
             onClick={onClose}
-            className="p-1 rounded hover:bg-white/10 text-muted-foreground hover:text-foreground"
+            className="p-1 rounded hover:bg-white/10 text-muted-foreground hover:text-foreground cursor-pointer"
           >
             <X className="w-4 h-4" />
           </button>
@@ -579,7 +739,7 @@ export default function Calculator({ isOpen, onClose, onResult }: CalculatorProp
               <button
                 key={m}
                 onClick={() => setMode(m)}
-                className={`flex-1 py-2 px-3 rounded text-sm font-medium transition-colors ${
+                className={`flex-1 py-2 px-3 rounded text-sm font-medium transition-colors cursor-pointer ${
                   mode === m
                     ? 'bg-primary text-primary-foreground'
                     : 'text-muted-foreground hover:text-foreground hover:bg-white/10'
@@ -603,7 +763,7 @@ export default function Calculator({ isOpen, onClose, onResult }: CalculatorProp
                   key={index}
                   onClick={() => handleButtonClick(button)}
                   disabled={isDisabled}
-                  className={`p-3 rounded-lg font-medium transition-colors text-sm ${
+                  className={`p-3 rounded-lg font-medium transition-colors text-sm cursor-pointer ${
                     isOperator
                       ? 'bg-primary text-primary-foreground hover:bg-primary/90'
                       : isDisabled

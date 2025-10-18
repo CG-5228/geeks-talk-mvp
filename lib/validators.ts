@@ -5,6 +5,7 @@ export const RegisterSchema = z.object({
   email: z.string().email(),
   password: z.string().min(8).regex(/^(?=.*[a-zA-Z])(?=.*\d).+$/, 'Must contain letters and numbers'),
   confirmPassword: z.string().min(8),
+  code: z.string().min(4).max(10).optional(),
   terms: z.literal(true),
 }).refine((data) => data.password === data.confirmPassword, {
   message: "Passwords don't match",

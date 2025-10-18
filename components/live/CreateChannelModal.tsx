@@ -305,20 +305,27 @@ export default function CreateChannelModal({ open, onClose, onCreate }: CreateCh
               <label htmlFor="slow-mode" className="block text-sm font-medium text-[rgba(236,245,255,0.9)] mb-2">
                 Slow Mode
               </label>
-              <select
-                id="slow-mode"
-                value={settings.slowMode}
-                onChange={(e) => updateSetting('slowMode', parseInt(e.target.value))}
-                className="w-full px-3 py-3 rounded-lg bg-white/5 border border-border/20 text-[rgba(236,245,255,0.95)] focus:outline-none focus:ring-2 focus:ring-primary/50"
-              >
-                <option value={0}>Off</option>
-                <option value={5}>5 seconds</option>
-                <option value={10}>10 seconds</option>
-                <option value={30}>30 seconds</option>
-                <option value={60}>1 minute</option>
-                <option value={300}>5 minutes</option>
-                <option value={900}>15 minutes</option>
-              </select>
+              <div className="relative">
+                <select
+                  id="slow-mode"
+                  value={settings.slowMode}
+                  onChange={(e) => updateSetting('slowMode', parseInt(e.target.value))}
+                  className="appearance-none w-full px-3 pr-10 py-3 rounded-lg bg-white/5 border border-border/20 text-[rgba(236,245,255,0.95)] focus:outline-none focus:ring-2 focus:ring-primary/50 hover:bg-white/7 transition-colors shadow-sm"
+                >
+                  <option value={0}>Off</option>
+                  <option value={5}>5 seconds</option>
+                  <option value={10}>10 seconds</option>
+                  <option value={30}>30 seconds</option>
+                  <option value={60}>1 minute</option>
+                  <option value={300}>5 minutes</option>
+                  <option value={900}>15 minutes</option>
+                </select>
+                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3">
+                  <svg className="h-4 w-4 text-white/70" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                    <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 10.94l3.71-3.71a.75.75 0 111.06 1.06l-4.24 4.24a.75.75 0 01-1.06 0L5.21 8.29a.75.75 0 01.02-1.08z" clipRule="evenodd" />
+                  </svg>
+                </div>
+              </div>
               <p className="mt-1 text-xs text-[rgba(220,235,255,0.6)]">
                 Prevent users from sending messages too frequently
               </p>

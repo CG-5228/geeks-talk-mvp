@@ -2,6 +2,9 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Tldraw styles */
+@import '@tldraw/tldraw/tldraw.css';
+
 /* Default to black theme values (fallback) */
 :root {
   --bg: 220 20% 4%;
