@@ -45,14 +45,14 @@ export default function Header() {
                   // Handle localhost case
                   const liveHost = currentHost.includes('localhost') 
                     ? 'live.localhost:3000' 
-                    : currentHost.replace(/^[^.]+\./, 'live.');
+                    : `live.${currentHost}`;
                   router.push(`/signin?callbackUrl=${encodeURIComponent(`${window.location.protocol}//${liveHost}/text`)}`);
                 } else {
                   const currentHost = window.location.host;
                   // Handle localhost case
                   const liveHost = currentHost.includes('localhost') 
                     ? 'live.localhost:3000' 
-                    : currentHost.replace(/^[^.]+\./, 'live.');
+                    : `live.${currentHost}`;
                   window.location.href = `${window.location.protocol}//${liveHost}/text`;
                 }
               }}

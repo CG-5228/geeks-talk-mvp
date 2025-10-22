@@ -10,7 +10,7 @@ export default function LiveFallbackPage() {
     const currentHost = window.location.host;
     if (currentHost.includes('localhost') || currentHost.includes('127.0.0.1')) {
       // For local development, try to redirect to live subdomain
-      const liveHost = currentHost.replace(/^[^.]+\./, 'live.');
+      const liveHost = `live.${currentHost}`;
       if (liveHost !== currentHost) {
         window.location.href = `${window.location.protocol}//${liveHost}/text`;
         return;
