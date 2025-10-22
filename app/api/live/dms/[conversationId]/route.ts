@@ -78,7 +78,7 @@ export async function GET(
     });
 
     // Format messages
-    const formattedMessages = messages.map(msg => ({
+    const formattedMessages = messages.map((msg: any) => ({
       id: msg.id,
       content: msg.content,
       senderId: msg.senderId,
