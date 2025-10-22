@@ -1,16 +1,45 @@
 import { NextResponse } from 'next/server';
-import { verifyAndConsumeEmailCode } from '@/lib/verification';
+import { verifyEmailCode, type EmailCodePurpose } from '@/lib/emailCode';
+import { db } from '@/lib/db';
 
 export async function POST(req: Request) {
-  const body = await req.json().catch(() => null) as { email?: string; purpose?: 'signup'|'reset'|'change'; code?: string };
-  const email = (body?.email || '').trim().toLowerCase();
-  const purpose = body?.purpose || 'signup';
-  const code = (body?.code || '').trim();
-  if (!email || !code) return NextResponse.json({ error: 'Email and code required' }, { status: 400 });
+  try {
+    const { email, code, purpose } = await req.json();
 
-  const res = await verifyAndConsumeEmailCode(email, purpose, code);
-  if (!res.ok) return NextResponse.json({ error: res.reason }, { status: 400 });
-  return NextResponse.json({ ok: true });
+    if (!email || !code || !purpose) {
+      return NextResponse.json({ error: 'Email, code, and purpose are required' }, { status: 400 });
+    }
+
+    if (!['signup', 'reset', 'change'].includes(purpose)) {
+      return NextResponse.json({ error: 'Invalid purpose' }, { status: 400 });
+    }
+
+    // Verify the code
+    const result = await verifyEmailCode(email, code, purpose as EmailCodePurpose);
+
+    if (!result.valid) {
+      return NextResponse.json({ error: result.error }, { status: 400 });
+    }
+
+    // Handle different purposes
+    if (purpose === 'signup') {
+      // Mark email as verified for the user
+      if (result.userId) {
+        await db.user.update({
+          where: { id: result.userId },
+          data: { emailVerified: new Date() }
+        });
+      }
+    }
+
+    return NextResponse.json({ 
+      success: true, 
+      message: 'Code verified successfully',
+      userId: result.userId
+    });
+
+  } catch (error) {
+    console.error('Error verifying code:', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  }
 }
-
-

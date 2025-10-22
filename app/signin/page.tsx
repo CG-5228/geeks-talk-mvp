@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { signIn } from "next-auth/react";
 import Link from "next/link";
+import { useSearchParams, useRouter } from "next/navigation";
 import NeonAuthShell from "@/components/auth/NeonAuthShell";
 import ParticlesBackground from "@/components/auth/ParticlesBackground";
 import FloatingInput from "@/components/ui/FloatingInput";
@@ -12,6 +13,9 @@ export default function SignInPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const callbackUrl = searchParams.get('callbackUrl') || '/profile';
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -21,10 +25,23 @@ export default function SignInPage() {
       const res = await signIn("credentials", {
         email,
         password,
-        redirect: true,
-        callbackUrl: "/profile",
+        redirect: false, // Don't let NextAuth handle redirect
+        callbackUrl: callbackUrl,
       });
-      if (res?.error) setError("Invalid credentials");
+
+      if (res?.error) {
+        setError("Invalid credentials");
+        console.error('Login error:', res.error);
+      } else if (res?.ok) {
+        // Manual redirect after successful login
+
+        // Use router.push for better cross-subdomain handling
+        router.push(callbackUrl);
+      } else {
+
+      }
+    } catch (err) {
+      setError("An error occurred. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -36,7 +53,29 @@ export default function SignInPage() {
       <NeonAuthShell title="Welcome back" subtitle="Sign in to continue">
       <div className="space-y-5">
         <button
-          onClick={() => signIn("google", { callbackUrl: "/profile" })}
+          onClick={async () => {
+
+            try {
+
+              // For live subdomain, redirect to main domain for OAuth
+              const currentHost = window.location.host;
+              if (currentHost.startsWith('live.')) {
+                const mainDomain = currentHost.replace('live.', '');
+                // Create a transfer URL that will redirect back to live subdomain with session
+                const transferUrl = `${window.location.protocol}//${mainDomain}/live/transfer-session?redirect=${encodeURIComponent(callbackUrl)}`;
+                const oauthUrl = `${window.location.protocol}//${mainDomain}/api/auth/signin/google?callbackUrl=${encodeURIComponent(transferUrl)}`;
+                window.location.href = oauthUrl;
+                return;
+              }
+
+              await signIn("google", {
+                callbackUrl: callbackUrl
+              });
+            } catch (error) {
+              console.error('Google signin exception:', error);
+              setError('Google signin failed');
+            }
+          }}
           className="w-full rounded-md px-4 py-2 font-bold tracking-wider text-[#00101a] bg-[#00d4ff] shadow-[0_0_20px_rgba(0,212,255,0.3)] hover:shadow-[0_0_30px_rgba(0,212,255,0.6)] hover:scale-[1.02] transition"
         >
           Continue with Google

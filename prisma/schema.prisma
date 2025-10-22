@@ -8,39 +8,59 @@ datasource db {
 }
 
 model User {
-  id               String            @id @default(cuid())
-  name             String?
-  email            String            @unique
-  emailVerified    DateTime?
-  username         String?           @unique
-  image            String?
-  hashedPassword   String?
-  role             String            @default("user")
-  onlineStatus     String            @default("offline")
-  lastSeen         DateTime?
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
-  accounts         Account[]
-  receivedDMs      DirectMessage[]   @relation("DMReceiver")
-  sentDMs          DirectMessage[]   @relation("DMSender")
-  followers        Follow[]          @relation("FollowsFollowee")
-  following        Follow[]          @relation("FollowsFollower")
-  messages         Message[]
-  ownedRooms       Room[]            @relation("RoomOwner")
-  sessions         Session[]
-  threads          Thread[]
-  voiceEligibility VoiceEligibility?
-  rooms            Room[]            @relation("RoomUsers")
-  contactMessages  ContactMessage[]
-  bugReports       BugReport[]
-  emailCodes       EmailCode[]
-  voiceGroupMembers  VoiceGroupMember[]
-  voiceFiles         VoiceGroupFile[]
-  voteKickPolls      VoteKickPoll[] @relation("VoteKickTarget")
-  reportsMade        UserReport[]   @relation("ReportsMade")
-  reportsReceived    UserReport[]   @relation("ReportsReceived")
-  reportsReviewed    UserReport[]   @relation("ReportsReviewed")
-  randomChatQueue    RandomChatQueue?
+  id                String             @id @default(cuid())
+  name              String?
+  email             String             @unique
+  emailVerified     DateTime?
+  username          String?            @unique
+  image             String?
+  bio               String?
+  hashedPassword    String?
+  role              String             @default("user")
+  onlineStatus      String             @default("offline")
+  lastSeen          DateTime?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  likesCount        Int                @default(0)
+  accounts          Account[]
+  messagesReceived  AdminMessage[]     @relation("MessagesReceived")
+  messagesSent      AdminMessage[]     @relation("MessagesSent")
+  granteesAdmin     AdminPermission[]  @relation("AdminGranter")
+  adminPermission   AdminPermission?   @relation("AdminUser")
+  blogComments      BlogComment[]      @relation("BlogCommentAuthor")
+  blogPosts         BlogPost[]         @relation("BlogAuthor")
+  friendships       Friendship[]       @relation("Friendships")
+  friendOf          Friendship[]       @relation("FriendOf")
+  bugReports        BugReport[]
+  bugReplies        BugReply[]         @relation("BugReplies")
+  contactMessages   ContactMessage[]
+  contactReplies    ContactReply[]     @relation("ContactReplies")
+  receivedDMs       DirectMessage[]    @relation("DMReceiver")
+  sentDMs           DirectMessage[]    @relation("DMSender")
+  emailCodes        EmailCode[]
+  followers         Follow[]           @relation("FollowsFollowee")
+  following         Follow[]           @relation("FollowsFollower")
+  messages          Message[]
+  messageReactions  MessageReaction[]
+  notifications     Notification[]     @relation("UserNotifications")
+  randomChatQueue   RandomChatQueue?
+  ownedRooms        Room[]             @relation("RoomOwner")
+  sessions          Session[]
+  threads           Thread[]
+  tutorialVideos    TutorialVideo[]    @relation("TutorialUploader")
+  activity          UserActivity?      @relation("UserActivity")
+  bansIssued        UserBan[]          @relation("BanAdmin")
+  bans              UserBan[]          @relation("BannedUser")
+  likesGiven        UserLike[]         @relation("LikesGiven")
+  likesReceived     UserLike[]         @relation("LikesReceived")
+  reportsReceived   UserReport[]       @relation("ReportsReceived")
+  reportsMade       UserReport[]       @relation("ReportsMade")
+  reportsReviewed   UserReport[]       @relation("ReportsReviewed")
+  voiceEligibility  VoiceEligibility?
+  voiceFiles        VoiceGroupFile[]
+  voiceGroupMembers VoiceGroupMember[]
+  voteKickPolls     VoteKickPoll[]     @relation("VoteKickTarget")
+  rooms             Room[]             @relation("RoomUsers")
 }
 
 model Subject {
@@ -66,38 +86,44 @@ model Thread {
 }
 
 model Room {
-  id           String    @id @default(cuid())
+  id           String       @id @default(cuid())
   name         String
-  slug         String    @unique
+  slug         String       @unique
   topic        String?
-  isVoice      Boolean   @default(false)
-  isDM         Boolean   @default(false)
-  participants String[]  @default([])
+  isVoice      Boolean      @default(false)
+  isDM         Boolean      @default(false)
+  participants String[]     @default([])
   subjectId    String?
   threadId     String?
   ownerId      String?
-  category     String    @default("General")
-  visibility   String    @default("public")
-  inviteCode   String?   @unique
-  createdAt    DateTime  @default(now())
+  category     String       @default("General")
+  visibility   String       @default("public")
+  inviteCode   String?      @unique
+  createdAt    DateTime     @default(now())
   messages     Message[]
-  owner        User?     @relation("RoomOwner", fields: [ownerId], references: [id])
-  subject      Subject?  @relation(fields: [subjectId], references: [id])
-  thread       Thread?   @relation(fields: [threadId], references: [id])
-  users        User[]    @relation("RoomUsers")
+  owner        User?        @relation("RoomOwner", fields: [ownerId], references: [id])
+  subject      Subject?     @relation(fields: [subjectId], references: [id])
+  thread       Thread?      @relation(fields: [threadId], references: [id])
   voiceGroups  VoiceGroup[]
+  users        User[]       @relation("RoomUsers")
 }
 
 model Message {
-  id               String   @id @default(cuid())
-  content          String
-  createdAt        DateTime @default(now())
-  roomId           String
-  authorId         String
-  moderationStatus String   @default("pending")
-  spamScore        Float    @default(0)
-  author           User     @relation(fields: [authorId], references: [id])
-  room             Room     @relation(fields: [roomId], references: [id])
+  id                String    @id @default(cuid())
+  content           String
+  createdAt         DateTime  @default(now())
+  roomId            String
+  authorId          String
+  moderationStatus  String    @default("pending")
+  spamScore         Float     @default(0)
+  replyToId         String?
+  unsent            Boolean   @default(false)
+  forwardedFrom     String?
+  forwardedFromType String?
+  author            User      @relation(fields: [authorId], references: [id])
+  replyTo           Message?  @relation("MessageReply", fields: [replyToId], references: [id])
+  replies           Message[] @relation("MessageReply")
+  room              Room      @relation(fields: [roomId], references: [id])
 }
 
 model VoiceEligibility {
@@ -153,35 +179,35 @@ model Follow {
 }
 
 model DirectMessage {
-  id             String   @id @default(cuid())
-  conversationId String
-  senderId       String
-  receiverId     String
-  content        String
-  read           Boolean  @default(false)
-  createdAt      DateTime @default(now())
-  receiver       User     @relation("DMReceiver", fields: [receiverId], references: [id], onDelete: Cascade)
-  sender         User     @relation("DMSender", fields: [senderId], references: [id], onDelete: Cascade)
+  id                String          @id @default(cuid())
+  conversationId    String
+  senderId          String
+  receiverId        String
+  content           String
+  read              Boolean         @default(false)
+  createdAt         DateTime        @default(now())
+  readAt            DateTime?
+  replyToId         String?
+  unsent            Boolean         @default(false)
+  forwardedFrom     String?
+  forwardedFromType String?
+  receiver          User            @relation("DMReceiver", fields: [receiverId], references: [id], onDelete: Cascade)
+  replyTo           DirectMessage?  @relation("DMReply", fields: [replyToId], references: [id])
+  replies           DirectMessage[] @relation("DMReply")
+  sender            User            @relation("DMSender", fields: [senderId], references: [id], onDelete: Cascade)
 
   @@index([conversationId])
   @@index([senderId, receiverId])
 }
 
-// Contact & Bug Reporting
-enum BugSeverity {
-  LOW
-  MEDIUM
-  HIGH
-  CRITICAL
-}
-
 model ContactMessage {
-  id        String   @id @default(cuid())
+  id        String         @id @default(cuid())
   userId    String
   subject   String
   message   String
-  createdAt DateTime @default(now())
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime       @default(now())
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  replies   ContactReply[]
 }
 
 model BugReport {
@@ -194,144 +220,361 @@ model BugReport {
   actual        String
   screenshotUrl String?
   severity      BugSeverity @default(MEDIUM)
+  status        String      @default("open") // open, in-progress, resolved, closed
+  description   String?     // Additional description field
+  environment   String?     // Environment information
   createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @default(now()) @updatedAt
   user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  replies       BugReply[]
+
+  @@index([status])
+  @@index([severity])
+  @@index([createdAt])
 }
 
-// Email verification codes (signup/reset/change)
 model EmailCode {
-  id         String   @id @default(cuid())
+  id         String    @id @default(cuid())
   email      String
   userId     String?
-  purpose    String   // 'signup' | 'reset' | 'change'
+  purpose    String
   codeHash   String
-  attempts   Int      @default(0)
+  attempts   Int       @default(0)
   expiresAt  DateTime
   consumedAt DateTime?
-  createdAt  DateTime @default(now())
-
-  user       User?    @relation(fields: [userId], references: [id])
+  createdAt  DateTime  @default(now())
+  user       User?     @relation(fields: [userId], references: [id])
 
   @@index([email, purpose, expiresAt])
 }
 
-// Voice Chat Models
 model VoiceGroup {
-  id          String   @id @default(cuid())
-  channelId   String   // links to Room.id
-  groupNumber Int      // 1-4+ for display
-  tags        String[] // max 3, set by first joiner
-  maxMembers  Int      @default(8)
-  isTemp      Boolean  @default(false) // for random 1:1
-  expiresAt   DateTime? // TTL for temp groups
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  
-  channel     Room     @relation(fields: [channelId], references: [id], onDelete: Cascade)
-  members     VoiceGroupMember[]
+  id          String             @id @default(cuid())
+  channelId   String
+  groupNumber Int
+  tags        String[]
+  maxMembers  Int                @default(8)
+  isTemp      Boolean            @default(false)
+  expiresAt   DateTime?
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+  isRandom    Boolean            @default(false)
+  channel     Room               @relation(fields: [channelId], references: [id], onDelete: Cascade)
   files       VoiceGroupFile[]
+  members     VoiceGroupMember[]
   whiteboards VoiceWhiteboard[]
   polls       VoteKickPoll[]
-  
+
   @@unique([channelId, groupNumber])
   @@index([channelId])
   @@index([isTemp, expiresAt])
 }
 
 model VoiceGroupMember {
-  id              String   @id @default(cuid())
-  groupId         String
-  userId          String
-  joinOrder       Int      // 0 = first, can edit tags
-  isSpeaking      Boolean  @default(false)
-  pushToTalk      Boolean  @default(false)
-  joinedAt        DateTime @default(now())
-  
-  group           VoiceGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  user            User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
+  id         String     @id @default(cuid())
+  groupId    String
+  userId     String
+  joinOrder  Int
+  isSpeaking Boolean    @default(false)
+  pushToTalk Boolean    @default(false)
+  joinedAt   DateTime   @default(now())
+  group      VoiceGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   @@unique([groupId, userId])
   @@index([groupId])
   @@index([userId])
 }
 
 model VoiceGroupFile {
-  id          String   @id @default(cuid())
-  groupId     String
-  channelId   String
-  uploaderId  String
-  fileName    String
-  fileType    String   // 'pdf', 'png', 'doc', etc.
-  fileSize    Int
-  s3Key       String   // S3 path
-  s3Url       String?  // presigned URL cache
+  id           String     @id @default(cuid())
+  groupId      String
+  channelId    String
+  uploaderId   String
+  fileName     String
+  fileType     String
+  fileSize     Int
+  s3Key        String
+  s3Url        String?
   urlExpiresAt DateTime?
-  createdAt   DateTime @default(now())
-  
-  group       VoiceGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  uploader    User       @relation(fields: [uploaderId], references: [id])
-  
+  createdAt    DateTime   @default(now())
+  group        VoiceGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  uploader     User       @relation(fields: [uploaderId], references: [id])
+
   @@index([groupId])
   @@index([channelId])
 }
 
 model VoiceWhiteboard {
-  id          String   @id @default(cuid())
+  id          String     @id @default(cuid())
   groupId     String
-  tldrawData  Json     // tldraw document state
-  snapshotUrl String?  // S3 URL for PNG/PDF export
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  
+  tldrawData  Json
+  snapshotUrl String?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
   group       VoiceGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  
+
   @@index([groupId])
 }
 
 model VoteKickPoll {
-  id          String   @id @default(cuid())
-  groupId     String
-  targetId    String   // user being voted to kick
-  reason      String
-  votesFor    String[] // user IDs who voted yes
-  votesAgainst String[] // user IDs who voted no
-  status      String   @default("active") // active, passed, failed
-  createdAt   DateTime @default(now())
-  expiresAt   DateTime
-  
-  group       VoiceGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  target      User       @relation("VoteKickTarget", fields: [targetId], references: [id])
-  
+  id           String     @id @default(cuid())
+  groupId      String
+  targetId     String
+  reason       String
+  votesFor     String[]
+  votesAgainst String[]
+  status       String     @default("active")
+  createdAt    DateTime   @default(now())
+  expiresAt    DateTime
+  group        VoiceGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  target       User       @relation("VoteKickTarget", fields: [targetId], references: [id])
+
   @@index([groupId])
   @@index([targetId])
 }
 
 model UserReport {
-  id          String   @id @default(cuid())
+  id          String    @id @default(cuid())
   reporterId  String
   reportedId  String
   groupId     String?
   channelId   String?
   reason      String
-  category    String   // 'harassment', 'spam', 'inappropriate', 'other'
+  category    String
   description String?
-  status      String   @default("pending") // pending, reviewed, resolved
+  status      String    @default("pending")
   reviewedBy  String?
   reviewedAt  DateTime?
-  createdAt   DateTime @default(now())
-  
-  reporter    User     @relation("ReportsMade", fields: [reporterId], references: [id])
-  reported    User     @relation("ReportsReceived", fields: [reportedId], references: [id])
-  reviewer    User?    @relation("ReportsReviewed", fields: [reviewedBy], references: [id])
-  
+  createdAt   DateTime  @default(now())
+  attachments UserReportAttachment[]
+  reported    User      @relation("ReportsReceived", fields: [reportedId], references: [id])
+  reporter    User      @relation("ReportsMade", fields: [reporterId], references: [id])
+  reviewer    User?     @relation("ReportsReviewed", fields: [reviewedBy], references: [id])
+
   @@index([reportedId])
   @@index([status])
+}
+
+model UserReportAttachment {
+  id         String     @id @default(cuid())
+  reportId   String
+  fileName   String
+  fileSize   Int
+  fileType   String
+  s3Key      String
+  s3Url      String
+  uploadedAt DateTime   @default(now())
+  report     UserReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
 }
 
 model RandomChatQueue {
   id        String   @id @default(cuid())
   userId    String   @unique
   createdAt DateTime @default(now())
-  
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model AdminPermission {
+  id            String   @id @default(cuid())
+  userId        String   @unique
+  adminHash     String   @unique
+  grantedBy     String?
+  createdAt     DateTime @default(now())
+  grantedByUser User?    @relation("AdminGranter", fields: [grantedBy], references: [id])
+  user          User     @relation("AdminUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([adminHash])
+}
+
+model UserBan {
+  id        String   @id @default(cuid())
+  userId    String
+  bannedBy  String
+  reason    String
+  duration  Int
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  admin     User     @relation("BanAdmin", fields: [bannedBy], references: [id])
+  user      User     @relation("BannedUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+}
+
+model UserLike {
+  id        String   @id @default(cuid())
+  userId    String
+  likedBy   String
+  createdAt DateTime @default(now())
+  liker     User     @relation("LikesGiven", fields: [likedBy], references: [id], onDelete: Cascade)
+  user      User     @relation("LikesReceived", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, likedBy])
+  @@index([userId])
+}
+
+model Friendship {
+  id        String   @id @default(cuid())
+  userId    String
+  friendId  String
+  status    String   @default("pending") // pending, accepted, blocked
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation("Friendships", fields: [userId], references: [id], onDelete: Cascade)
+  friend    User     @relation("FriendOf", fields: [friendId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, friendId])
+  @@index([userId])
+  @@index([friendId])
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  type      String
+  title     String
+  message   String
+  read      Boolean  @default(false)
+  metadata  Json?
+  createdAt DateTime @default(now())
+  user      User     @relation("UserNotifications", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, read])
+  @@index([createdAt])
+}
+
+model AdminMessage {
+  id          String   @id @default(cuid())
+  recipientId String
+  senderId    String
+  subject     String
+  message     String
+  sentToEmail Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  recipient   User     @relation("MessagesReceived", fields: [recipientId], references: [id], onDelete: Cascade)
+  sender      User     @relation("MessagesSent", fields: [senderId], references: [id])
+
+  @@index([recipientId])
+}
+
+model ContactReply {
+  id               String         @id @default(cuid())
+  contactMessageId String
+  adminId          String
+  message          String
+  sentToEmail      Boolean        @default(false)
+  createdAt        DateTime       @default(now())
+  admin            User           @relation("ContactReplies", fields: [adminId], references: [id])
+  contactMessage   ContactMessage @relation(fields: [contactMessageId], references: [id], onDelete: Cascade)
+
+  @@index([contactMessageId])
+}
+
+model BugReply {
+  id         String    @id @default(cuid())
+  bugReportId String
+  adminId    String
+  message    String
+  sentToEmail Boolean  @default(false)
+  createdAt  DateTime  @default(now())
+  admin      User      @relation("BugReplies", fields: [adminId], references: [id])
+  bugReport  BugReport @relation(fields: [bugReportId], references: [id], onDelete: Cascade)
+
+  @@index([bugReportId])
+}
+
+model BlogPost {
+  id          String        @id @default(cuid())
+  authorId    String
+  title       String
+  slug        String        @unique
+  content     String
+  excerpt     String?
+  coverImage  String?
+  published   Boolean       @default(false)
+  publishedAt DateTime?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  comments    BlogComment[]
+  author      User          @relation("BlogAuthor", fields: [authorId], references: [id])
+
+  @@index([published, publishedAt])
+  @@index([slug])
+}
+
+model BlogComment {
+  id        String   @id @default(cuid())
+  postId    String
+  authorId  String
+  content   String
+  createdAt DateTime @default(now())
+  author    User     @relation("BlogCommentAuthor", fields: [authorId], references: [id])
+  post      BlogPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@index([postId])
+}
+
+model TutorialVideo {
+  id          String    @id @default(cuid())
+  title       String
+  description String?
+  videoUrl    String?
+  s3Key       String?
+  s3Url       String?
+  thumbnail   String?
+  duration    Int?
+  uploadedBy  String
+  published   Boolean   @default(false)
+  publishedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  uploader    User      @relation("TutorialUploader", fields: [uploadedBy], references: [id])
+
+  @@index([published, publishedAt])
+}
+
+model DailyStats {
+  id              String   @id @default(cuid())
+  date            DateTime @unique @db.Date
+  activeUsers     Int      @default(0)
+  onlineUsers     Int      @default(0)
+  messagesSent    Int      @default(0)
+  contactMessages Int      @default(0)
+  activeGroups    Int      @default(0)
+  createdAt       DateTime @default(now())
+
+  @@index([date])
+}
+
+model UserActivity {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  totalMessages   Int      @default(0)
+  voiceMinutes    Int      @default(0)
+  totalOnlineTime Int      @default(0)
+  lastActive      DateTime @default(now())
+  user            User     @relation("UserActivity", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model MessageReaction {
+  id          String   @id @default(cuid())
+  messageId   String
+  messageType String
+  userId      String
+  emoji       String
+  createdAt   DateTime @default(now())
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId, emoji])
+  @@index([messageId])
+  @@index([userId])
+}
+
+enum BugSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
 }

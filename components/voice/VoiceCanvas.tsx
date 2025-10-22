@@ -1,5 +1,5 @@
 "use client";
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { Tldraw, Editor, TLUiOverrides } from '@tldraw/tldraw';
 import { useSession } from 'next-auth/react';
 import jsPDF from 'jspdf';
@@ -12,14 +12,48 @@ interface VoiceCanvasProps {
   groupId: string;
 }
 
+interface GroupFile {
+  id: string;
+  fileName: string;
+  fileSize: number;
+  fileType: string;
+  createdAt: string;
+  uploader: {
+    id: string;
+    name: string | null;
+    username: string | null;
+    image: string | null;
+  };
+}
+
 export default function VoiceCanvas({ groupId }: VoiceCanvasProps) {
   const { data: session } = useSession();
   const [editor, setEditor] = useState<Editor | null>(null);
   const [isDrawingMode, setIsDrawingMode] = useState(false);
-  const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
-  const [activeDocument, setActiveDocument] = useState<{ file: File; content: string } | null>(null);
+  const [groupFiles, setGroupFiles] = useState<GroupFile[]>([]);
+  const [activeDocument, setActiveDocument] = useState<{ file: GroupFile; content: string } | null>(null);
   const [isProcessingDocument, setIsProcessingDocument] = useState(false);
+  const [loading, setLoading] = useState(true);
   const { showDialog, DialogComponent } = useStyledDialog();
+
+  // Fetch group files on component mount
+  useEffect(() => {
+    fetchGroupFiles();
+  }, [groupId]);
+
+  const fetchGroupFiles = async () => {
+    try {
+      const response = await fetch(`/api/voice/groups/${groupId}/files`);
+      if (response.ok) {
+        const data = await response.json();
+        setGroupFiles(data.files || []);
+      }
+    } catch (error) {
+      console.error('Error fetching group files:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleMount = useCallback((editor: Editor) => {
     setEditor(editor);
@@ -82,8 +116,21 @@ export default function VoiceCanvas({ groupId }: VoiceCanvasProps) {
       if (files.length === 0) return;
       
       try {
-        // Add files to the uploaded files list
-        setUploadedFiles(prev => [...prev, ...files]);
+        // Upload files to the group
+        for (const file of files) {
+          const formData = new FormData();
+          formData.append('file', file);
+          
+          const response = await fetch(`/api/voice/groups/${groupId}/files`, {
+            method: 'POST',
+            body: formData,
+          });
+          
+          if (response.ok) {
+            const data = await response.json();
+            setGroupFiles(prev => [data.file, ...prev]);
+          }
+        }
         
         // If in drawing mode and file is an image, add to canvas
         if (isDrawingMode && editor) {
@@ -125,7 +172,7 @@ export default function VoiceCanvas({ groupId }: VoiceCanvasProps) {
     };
     
     input.click();
-  }, [editor, isDrawingMode]);
+  }, [editor, isDrawingMode, groupId]);
 
   const handleExportPDF = useCallback(async () => {
     if (!editor) return;
@@ -201,9 +248,6 @@ export default function VoiceCanvas({ groupId }: VoiceCanvasProps) {
     }
   }, [editor]);
 
-  const handleRemoveFile = useCallback((index: number) => {
-    setUploadedFiles(prev => prev.filter((_, i) => i !== index));
-  }, []);
 
   const extractTextFromDocx = useCallback(async (file: File, fileName: string) => {
     try {
@@ -223,88 +267,105 @@ export default function VoiceCanvas({ groupId }: VoiceCanvasProps) {
     }
   }, []);
 
-  const handleDisplayFile = useCallback((file: File) => {
-    if (file.type.startsWith('image/')) {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const img = new Image();
-        img.onload = () => {
-          // Switch to drawing mode and add image to canvas
-          setIsDrawingMode(true);
-          setTimeout(() => {
-            if (editor) {
-              const imageShape = {
-                type: 'image' as const,
-                x: 100,
-                y: 100,
-                props: {
-                  w: Math.min(img.width, 600),
-                  h: Math.min(img.height, 400),
-                  url: e.target?.result as string,
-                },
-              };
-              editor.createShapes([imageShape]);
-            }
-          }, 100);
-        };
-        img.src = e.target?.result as string;
-      };
-      reader.readAsDataURL(file);
-    } else if (file.type === 'application/pdf') {
+  const handleDisplayFile = useCallback(async (file: GroupFile) => {
+    if (file.fileType.startsWith('image/')) {
+      // For images, download and display
+      try {
+        const response = await fetch(`/api/voice/groups/${groupId}/files/${file.id}`);
+        if (response.ok) {
+          const data = await response.json();
+          const img = new Image();
+          img.onload = () => {
+            // Switch to drawing mode and add image to canvas
+            setIsDrawingMode(true);
+            setTimeout(() => {
+              if (editor) {
+                const imageShape = {
+                  type: 'image' as const,
+                  x: 100,
+                  y: 100,
+                  props: {
+                    w: Math.min(img.width, 600),
+                    h: Math.min(img.height, 400),
+                    url: data.downloadUrl,
+                  },
+                };
+                editor.createShapes([imageShape]);
+              }
+            }, 100);
+          };
+          img.src = data.downloadUrl;
+        }
+      } catch (error) {
+        console.error('Error loading image:', error);
+      }
+    } else if (file.fileType === 'application/pdf') {
       // For PDF files, show a message about PDF support
       showDialog({
         title: 'PDF Support Coming Soon',
-        message: `PDF file: ${file.name}\n\nPDF viewing and annotation will be available soon. For now, you can:\n1. Convert to images and upload\n2. Use the drawing mode to create annotations`,
+        message: `PDF file: ${file.fileName}\n\nPDF viewing and annotation will be available soon. For now, you can:\n1. Convert to images and upload\n2. Use the drawing mode to create annotations`,
         type: 'info'
       });
-    } else if (file.name.endsWith('.docx') || file.name.endsWith('.doc') || file.type.includes('document')) {
+    } else if (file.fileName.endsWith('.docx') || file.fileName.endsWith('.doc') || file.fileType.includes('document')) {
       // For Word documents, open collaborative editor
       setIsProcessingDocument(true);
-      extractTextFromDocx(file, file.name).then((textContent) => {
-        setActiveDocument({ file, content: textContent });
-        setIsProcessingDocument(false);
-      }).catch((error) => {
-        console.error('Error processing .docx file:', error);
-        setIsProcessingDocument(false);
+      try {
+        const response = await fetch(`/api/voice/groups/${groupId}/files/${file.id}`);
+        if (response.ok) {
+          const data = await response.json();
+          // For now, create a simple document content
+          const textContent = `<h1>${file.fileName}</h1><p>Welcome to collaborative editing!</p><p>Start typing to edit this document. You can use formatting tools like <strong>bold</strong>, <em>italic</em>, and more.</p><p>This document is ready for real-time collaboration with other users.</p>`;
+          setActiveDocument({ file, content: textContent });
+        }
+      } catch (error) {
+        console.error('Error loading document:', error);
         showDialog({
-          title: 'Document Processing Error',
-          message: 'Failed to process the Word document. Please try again or use a different file format.',
+          title: 'Document Loading Error',
+          message: 'Failed to load the document. Please try again.',
           type: 'error'
         });
-      });
-    } else if (file.type.startsWith('text/') || file.name.endsWith('.txt')) {
-      // For text files, show content in a text shape
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const content = e.target?.result as string;
-        setIsDrawingMode(true);
-        setTimeout(() => {
-          if (editor) {
-            const textShape = {
-              type: 'text' as const,
-              x: 100,
-              y: 100,
-              text: `📄 ${file.name}\n\n${content.substring(0, 1000)}${content.length > 1000 ? '\n\n... (truncated)' : ''}`,
-              props: {
-                size: 'm',
-                color: 'black',
-                font: 'draw',
-              },
-            };
-            editor.createShapes([textShape]);
-          }
-        }, 100);
-      };
-      reader.readAsText(file);
+      } finally {
+        setIsProcessingDocument(false);
+      }
+    } else if (file.fileType.startsWith('text/') || file.fileName.endsWith('.txt')) {
+      // For text files, download and show content
+      try {
+        const response = await fetch(`/api/voice/groups/${groupId}/files/${file.id}`);
+        if (response.ok) {
+          const data = await response.json();
+          const textResponse = await fetch(data.downloadUrl);
+          const content = await textResponse.text();
+          
+          setIsDrawingMode(true);
+          setTimeout(() => {
+            if (editor) {
+              const textShape = {
+                type: 'text' as const,
+                x: 100,
+                y: 100,
+                text: `📄 ${file.fileName}\n\n${content.substring(0, 1000)}${content.length > 1000 ? '\n\n... (truncated)' : ''}`,
+                props: {
+                  size: 'm',
+                  color: 'black',
+                  font: 'draw',
+                },
+              };
+              editor.createShapes([textShape]);
+            }
+          }, 100);
+        }
+      } catch (error) {
+        console.error('Error loading text file:', error);
+      }
     } else {
       // For other file types, show a generic message
       showDialog({
         title: 'File Type Not Supported',
-        message: `File: ${file.name}\n\nFile type: ${file.type}\n\nThis file type is not yet supported for live editing. You can:\n• Switch to drawing mode to add annotations\n• Export your work as PNG/PDF`,
+        message: `File: ${file.fileName}\n\nFile type: ${file.fileType}\n\nThis file type is not yet supported for live editing. You can:\n• Switch to drawing mode to add annotations\n• Export your work as PNG/PDF`,
         type: 'info'
       });
     }
-  }, [editor]);
+  }, [editor, groupId]);
 
   // Custom UI overrides to add our buttons
   const uiOverrides: TLUiOverrides = {
@@ -440,7 +501,7 @@ export default function VoiceCanvas({ groupId }: VoiceCanvasProps) {
             ) : activeDocument ? (
               // Collaborative document editor
               <CollaborativeEditor
-                fileName={activeDocument.file.name}
+                fileName={activeDocument.file.fileName}
                 fileContent={activeDocument.content}
                 groupId={groupId}
                 onClose={() => setActiveDocument(null)}
@@ -498,7 +559,14 @@ export default function VoiceCanvas({ groupId }: VoiceCanvasProps) {
 
             {/* Files list */}
             <div className="flex-1 p-6">
-              {uploadedFiles.length === 0 ? (
+              {loading ? (
+                <div className="h-full flex items-center justify-center">
+                  <div className="text-center">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+                    <p className="text-sm text-muted-foreground">Loading files...</p>
+                  </div>
+                </div>
+              ) : groupFiles.length === 0 ? (
                 <div className="h-full flex items-center justify-center">
                   <div className="text-center">
                     <FileText className="w-16 h-16 mx-auto mb-4 text-muted-foreground opacity-50" />
@@ -516,31 +584,27 @@ export default function VoiceCanvas({ groupId }: VoiceCanvasProps) {
                 </div>
               ) : (
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                  {uploadedFiles.map((file, index) => (
-                    <div key={index} className="bg-card/50 rounded-lg p-4 border border-border/20 hover:border-border/40 transition-colors">
+                  {groupFiles.map((file) => (
+                    <div key={file.id} className="bg-card/50 rounded-lg p-4 border border-border/20 hover:border-border/40 transition-colors">
                       <div className="flex items-start justify-between mb-2">
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-foreground truncate" title={file.name}>
-                            {file.name}
+                          <p className="text-sm font-medium text-foreground truncate" title={file.fileName}>
+                            {file.fileName}
                           </p>
                           <p className="text-xs text-muted-foreground">
-                            {(file.size / 1024).toFixed(1)} KB
+                            {(file.fileSize / 1024).toFixed(1)} KB
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            by {file.uploader.name || file.uploader.username || 'Unknown'}
                           </p>
                         </div>
-                        <button
-                          onClick={() => handleRemoveFile(index)}
-                          className="p-1 rounded hover:bg-white/10 transition-colors ml-2"
-                          title="Remove file"
-                        >
-                          <Trash2 className="w-3 h-3 text-muted-foreground" />
-                        </button>
                       </div>
                       
-                      {file.type.startsWith('image/') ? (
+                      {file.fileType.startsWith('image/') ? (
                         <div className="aspect-video bg-muted/20 rounded mb-2 overflow-hidden">
                           <img
-                            src={URL.createObjectURL(file)}
-                            alt={file.name}
+                            src={`/api/voice/groups/${groupId}/files/${file.id}`}
+                            alt={file.fileName}
                             className="w-full h-full object-cover cursor-pointer"
                             onClick={() => handleDisplayFile(file)}
                           />
@@ -555,11 +619,11 @@ export default function VoiceCanvas({ groupId }: VoiceCanvasProps) {
                         onClick={() => handleDisplayFile(file)}
                         className="w-full px-3 py-1 text-xs bg-primary/20 text-primary rounded hover:bg-primary/30 transition-colors"
                       >
-                        {file.type.startsWith('image/') 
+                        {file.fileType.startsWith('image/') 
                           ? 'View & Annotate' 
-                          : file.name.endsWith('.docx') || file.name.endsWith('.doc')
+                          : file.fileName.endsWith('.docx') || file.fileName.endsWith('.doc')
                           ? 'Edit & Annotate'
-                          : file.type === 'application/pdf'
+                          : file.fileType === 'application/pdf'
                           ? 'View & Annotate'
                           : 'View Content'}
                       </button>

@@ -29,7 +29,7 @@
   --surface-1: hsl(215 22% 11%);
   --surface-2: hsl(215 22% 13%);
   --divider: hsl(215 18% 22% / 0.22);
-  --header-h: 56px;
+  --header-h: 64px;
   --subnav-h: 0px;
   --rail: 56px;
   --sidebar: 320px;
@@ -39,6 +39,11 @@
   --cord-end: hsl(210 14% 65%);
   --bulb-stroke: hsl(210 10% 72%);
   --bulb-fill: hsla(200 80% 70% / 0.08);
+  
+  /* Live subdomain neon colors */
+  --neon-cyan: #00d9ff;
+  --neon-purple: #b537ff;
+  --neon-pink: #ff006e;
 }
 
 /* Paint the viewport background to control rubber-band color */
@@ -94,7 +99,7 @@ body::before {
   --surface-1: hsl(215 22% 11%);
   --surface-2: hsl(215 22% 13%);
   --divider: hsl(215 18% 22% / 0.22);
-  --header-h: 56px;
+  --header-h: 64px;
   --subnav-h: 0px;
   --rail: 56px;
   --sidebar: 320px;
@@ -126,7 +131,7 @@ body::before {
   --surface-1: hsl(215 22% 11%);
   --surface-2: hsl(215 22% 13%);
   --divider: hsl(215 18% 22% / 0.22);
-  --header-h: 56px;
+  --header-h: 64px;
   --subnav-h: 0px;
   --rail: 56px;
   --sidebar: 320px;
@@ -199,4 +204,49 @@ body::before {
   0% { transform: translateX(-100%); }
   50% { transform: translateX(100%); }
   100% { transform: translateX(-100%); }
+}
+
+/* Live subdomain neon utilities */
+.neon-text-cyan { 
+  color: var(--neon-cyan); 
+  text-shadow: 0 0 10px rgba(0,217,255,0.5), 0 0 20px rgba(0,217,255,0.3); 
+}
+
+.neon-text-purple { 
+  color: var(--neon-purple); 
+  text-shadow: 0 0 10px rgba(181,55,255,0.5), 0 0 20px rgba(181,55,255,0.3); 
+}
+
+.neon-text-pink { 
+  color: var(--neon-pink); 
+  text-shadow: 0 0 10px rgba(255,0,110,0.5), 0 0 20px rgba(255,0,110,0.3); 
+}
+
+.neon-border-cyan { 
+  border-color: var(--neon-cyan); 
+  box-shadow: 0 0 8px rgba(0,217,255,0.4), inset 0 0 8px rgba(0,217,255,0.1); 
+}
+
+.neon-border-purple { 
+  border-color: var(--neon-purple); 
+  box-shadow: 0 0 8px rgba(181,55,255,0.4), inset 0 0 8px rgba(181,55,255,0.1); 
+}
+
+.neon-border-pink { 
+  border-color: var(--neon-pink); 
+  box-shadow: 0 0 8px rgba(255,0,110,0.4), inset 0 0 8px rgba(255,0,110,0.1); 
+}
+
+/* Glow pulse animation */
+@keyframes glow-pulse {
+  0%, 100% { 
+    box-shadow: 0 0 10px rgba(0,217,255,0.3), 0 0 20px rgba(0,217,255,0.2); 
+  }
+  50% { 
+    box-shadow: 0 0 20px rgba(0,217,255,0.6), 0 0 40px rgba(0,217,255,0.4); 
+  }
+}
+
+.animate-glow-pulse {
+  animation: glow-pulse 2s ease-in-out infinite;
 }

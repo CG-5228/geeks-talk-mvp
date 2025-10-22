@@ -1,33 +1,32 @@
 "use client";
+import { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 
-import { useState, Suspense } from 'react';
-import { useSearchParams } from 'next/navigation';
-import LiveLayout from '@/components/live/LiveLayout';
-import ChatDashboard from './ChatDashboard';
+export default function LiveFallbackPage() {
+  const router = useRouter();
 
-export const dynamic = 'force-dynamic';
-
-function LivePageContent() {
-  const params = useSearchParams();
-  const tabParam = (params.get('tab') as 'text' | 'voice' | 'tutorials') || 'text';
-  const channelParam = params.get('channel');
-  const [channelSlug, setChannelSlug] = useState<string | null>(channelParam);
+  useEffect(() => {
+    // Redirect to live subdomain if possible, otherwise show fallback
+    const currentHost = window.location.host;
+    if (currentHost.includes('localhost') || currentHost.includes('127.0.0.1')) {
+      // For local development, try to redirect to live subdomain
+      const liveHost = currentHost.replace(/^[^.]+\./, 'live.');
+      if (liveHost !== currentHost) {
+        window.location.href = `${window.location.protocol}//${liveHost}/text`;
+        return;
+      }
+    }
+    
+    // If subdomain redirect fails, show fallback content
+    router.replace('/live/fallback');
+  }, [router]);
 
   return (
-    <div className="w-full overflow-hidden">
-      {tabParam === 'text' ? (
-        <ChatDashboard />
-      ) : (
-        <LiveLayout activeTab={tabParam} selectedSlug={channelSlug} onSelectSlug={setChannelSlug} />
-      )}
+    <div className="flex items-center justify-center min-h-screen bg-background">
+      <div className="text-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+        <p className="text-muted-foreground">Redirecting to live chat...</p>
+      </div>
     </div>
-  );
-}
-
-export default function LivePage() {
-  return (
-    <Suspense fallback={<div className="w-full overflow-hidden">Loading...</div>}>
-      <LivePageContent />
-    </Suspense>
   );
 }

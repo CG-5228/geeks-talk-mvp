@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { db } from '@/lib/db';
-import { sendEmail } from '@/lib/email';
+import { sendEmailWithFallback } from '@/lib/emailResend';
 import { rateLimit } from '@/lib/rateLimit';
 
 export async function POST(req: Request) {
@@ -39,6 +39,14 @@ export async function POST(req: Request) {
     },
   });
 
+  // Track contact message for analytics
+  try {
+    const { updateDailyStats } = await import('@/lib/analytics');
+    await updateDailyStats(new Date(), 'contact');
+  } catch (error) {
+    console.error('Failed to track contact message:', error);
+  }
+
   const html = `
     <h2>New Contact Message</h2>
     <p><strong>User:</strong> ${session.user.email}</p>
@@ -48,7 +56,14 @@ export async function POST(req: Request) {
     <p><small>Message ID: ${saved.id}</small></p>
   `;
 
-  await sendEmail({ subject: `[Contact] ${subject}`, html });
+  // Use Resend HTTP API first, fallback to SMTP if configured
+  const fromAddr = process.env.EMAIL_NO_REPLY || 'onboarding@resend.dev';
+  const toAddr = process.env.CONTACT_INBOX || process.env.EMAIL_TO || 'chris.g@geekstalk.co';
+  const delivered = await sendEmailWithFallback({ subject: `[Contact] ${subject}`, html, from: fromAddr, to: toAddr });
+
+  if (!delivered) {
+    return NextResponse.json({ ok: false, id: saved.id, error: 'Email delivery failed (domain not verified or SMTP not configured).' }, { status: 502 });
+  }
 
   return NextResponse.json({ ok: true, id: saved.id });
 }

@@ -7,7 +7,7 @@ type SendEmailParams = {
   from?: string;
 };
 
-export async function sendEmail({ subject, html, to, from }: SendEmailParams) {
+export async function sendEmail({ subject, html, to, from }: SendEmailParams): Promise<boolean> {
   const host = process.env.SMTP_HOST;
   const port = Number(process.env.SMTP_PORT || 587);
   const user = process.env.SMTP_USER;
@@ -17,22 +17,29 @@ export async function sendEmail({ subject, html, to, from }: SendEmailParams) {
 
   if (!host || !user || !pass) {
     console.warn('Email disabled: missing SMTP envs');
-    return;
+    return false;
   }
 
-  const transporter = nodemailer.createTransport({
-    host,
-    port,
-    secure: port === 465,
-    auth: { user, pass },
-  });
+  try {
+    const transporter = nodemailer.createTransport({
+      host,
+      port,
+      secure: port === 465,
+      auth: { user, pass },
+    });
 
-  await transporter.sendMail({
-    from: fromAddr,
-    to: toAddr,
-    subject,
-    html,
-  });
+    await transporter.sendMail({
+      from: fromAddr,
+      to: toAddr,
+      subject,
+      html,
+    });
+
+    return true;
+  } catch (error) {
+    console.error('Nodemailer send failed:', error);
+    return false;
+  }
 }
 
 

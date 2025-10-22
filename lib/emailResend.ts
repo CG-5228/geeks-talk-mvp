@@ -5,26 +5,84 @@ type SendEmailParams = {
   from?: string;
 };
 
-export async function sendEmailResend({ subject, html, to, from }: SendEmailParams) {
+export async function sendEmailResend({ subject, html, to, from }: SendEmailParams): Promise<boolean> {
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) {
     console.warn('Resend disabled: missing RESEND_API_KEY');
-    return;
+    return false;
   }
   const fromAddr = from || process.env.EMAIL_NO_REPLY || 'no-reply@geekstalk.co';
+  
+  console.log('Sending email:', { to, from: fromAddr, subject, hasApiKey: !!apiKey });
 
-  const res = await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ from: fromAddr, to, subject, html }),
-  });
+  try {
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ from: fromAddr, to, subject, html }),
+    });
 
-  if (!res.ok) {
-    const msg = await res.text().catch(() => '');
-    console.warn('Resend send failed', res.status, msg);
+    if (!res.ok) {
+      const msg = await res.text().catch(() => '');
+      console.warn('Resend send failed', res.status, msg);
+      return false;
+    }
+
+    return true;
+  } catch (error) {
+    console.warn('Resend send error:', error);
+    return false;
+  }
+}
+
+export async function sendEmailWithFallback({ subject, html, to, from }: SendEmailParams): Promise<boolean> {
+  // Try Resend first
+  const resendResult = await sendEmailResend({ subject, html, to, from });
+  if (resendResult) {
+    console.log('Email sent successfully via Resend');
+    return true;
+  }
+
+  // Fallback to nodemailer
+  console.log('Resend failed, trying nodemailer fallback...');
+  try {
+    // Import nodemailer function directly
+    const nodemailer = await import('nodemailer');
+    
+    const host = process.env.SMTP_HOST;
+    const port = Number(process.env.SMTP_PORT || 587);
+    const user = process.env.SMTP_USER;
+    const pass = process.env.SMTP_PASS;
+    const fromAddr = from || process.env.EMAIL_FROM || 'no-reply@geekstalk.co';
+    const toAddr = to || process.env.EMAIL_TO || 'chris.g@geekstalk.co';
+
+    if (!host || !user || !pass) {
+      console.warn('Nodemailer fallback disabled: missing SMTP envs');
+      return false;
+    }
+
+    const transporter = nodemailer.default.createTransport({
+      host,
+      port,
+      secure: port === 465,
+      auth: { user, pass },
+    });
+
+    await transporter.sendMail({
+      from: fromAddr,
+      to: toAddr,
+      subject,
+      html,
+    });
+
+    console.log('Email sent successfully via nodemailer');
+    return true;
+  } catch (error) {
+    console.error('Both email services failed:', error);
+    return false;
   }
 }
 
@@ -34,7 +92,7 @@ export function renderCodeEmail(code: string) {
       <h2 style="margin:0 0 8px">Your verification code</h2>
       <p style="margin:0 0 12px">Use the code below to continue.</p>
       <div style="font-size:24px;font-weight:700;letter-spacing:4px;background:#0d0f10;color:#00d4ff;display:inline-block;padding:12px 16px;border-radius:8px;">${code}</div>
-      <p style="margin:16px 0 0;color:#555">This code expires in 10 minutes. If you didn’t request it, you can ignore this email.</p>
+      <p style="margin:16px 0 0;color:#555">This code expires in 10 minutes. If you didn't request it, you can ignore this email.</p>
     </div>
   `;
 }

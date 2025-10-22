@@ -34,6 +34,7 @@ export default async function ProfilePage() {
       email: true,
       image: true,
       createdAt: true,
+      likesCount: true,
     }
   });
 
@@ -65,6 +66,9 @@ export default async function ProfilePage() {
     createdAt: user.createdAt,
     friendsCount,
     isOwnProfile: true,
+    userId: user.id,
+    likesCount: user.likesCount,
+    isLiked: false, // Can't like your own profile
   };
 
   return (

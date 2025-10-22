@@ -10,7 +10,7 @@ Geeks Talk is a comprehensive real-time chat and voice communication platform de
 - **Document Collaboration**: Google Docs-like collaborative editing with TipTap and Yjs
 - **File Management**: Upload and share files with S3 integration
 - **Authentication**: Secure user authentication using Google OAuth and email/password
-- **Email Verification**: Email-based verification system with Resend API
+- **Email Verification**: Email-based verification system with Resend API for signup, password reset, and password change
 - **Moderation**: Built-in moderation tools and user reporting system
 - **Responsive Design**: Fully responsive UI built with Tailwind CSS
 - **Voice Features**: Push-to-talk, click-to-talk, vote-kick polls, and group management
@@ -92,6 +92,10 @@ geeks-talk-mvp
    RESEND_API_KEY="your-resend-api-key"
    EMAIL_NO_REPLY="no-reply@geekstalk.co"
 
+   # Email Verification Settings
+   VERIFICATION_CODE_TTL_MIN="10"  # Code expires after 10 minutes
+   VERIFICATION_MAX_ATTEMPTS="5"   # Max failed attempts before code is locked
+
    # AWS S3 (for file uploads)
    AWS_ACCESS_KEY_ID="your-aws-access-key"
    AWS_SECRET_ACCESS_KEY="your-aws-secret-key"
@@ -142,6 +146,42 @@ geeks-talk-mvp
 - Navigate to `http://localhost:3000` to access the application
 - Use the authentication options to log in and start chatting or joining voice rooms
 - Create channels, join voice groups, and collaborate on documents in real-time
+
+## Email Verification System
+
+The application includes a comprehensive email verification system for enhanced security:
+
+### Features
+
+- **Signup Verification**: New users must verify their email before account creation
+- **Password Reset**: Secure password reset via email verification codes
+- **Password Change**: Option to change password using email verification instead of current password
+- **Domain Validation**: Only allows specific email providers (icloud, gmail, outlook, yahoo, qq)
+- **Rate Limiting**: Prevents abuse with request limits per email/IP
+- **Code Security**: 6-digit codes with configurable TTL and attempt limits
+
+### Configuration
+
+The email verification system uses the following environment variables:
+
+- `EMAIL_NO_REPLY`: The "from" address for verification emails (e.g., "no-reply@geekstalk.co")
+- `VERIFICATION_CODE_TTL_MIN`: How long verification codes remain valid (default: 10 minutes)
+- `VERIFICATION_MAX_ATTEMPTS`: Maximum failed attempts before code is locked (default: 5)
+
+### API Endpoints
+
+- `POST /api/auth/request-code`: Request a verification code for signup/reset/change
+- `POST /api/auth/verify-code`: Verify and consume a verification code
+- `POST /api/auth/reset-password`: Reset password using verified code
+- `POST /api/auth/change-password`: Change password (supports both current password and email verification)
+
+### Security Features
+
+- **Code Expiration**: Codes automatically expire after the configured TTL
+- **Attempt Limiting**: Codes are locked after maximum failed attempts
+- **One-time Use**: Codes are consumed after successful verification
+- **Rate Limiting**: Prevents spam with per-email and per-IP limits
+- **Domain Restrictions**: Only allows trusted email providers
 
 ## Production Deployment
 

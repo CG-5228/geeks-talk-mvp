@@ -4,14 +4,22 @@ import Link from 'next/link';
 import { ArrowRight, Users, MessageSquare } from 'lucide-react';
 
 export default function Hero() {
-  const [onlineCount, setOnlineCount] = useState(127);
+  const [onlineCount, setOnlineCount] = useState<number | null>(null);
 
-  // Simulate live user count updates
+  // Poll real online count
   useEffect(() => {
-    const interval = setInterval(() => {
-      setOnlineCount(prev => prev + Math.floor(Math.random() * 3) - 1);
-    }, 5000);
-    return () => clearInterval(interval);
+    let mounted = true;
+    const fetchOnline = async () => {
+      try {
+        const res = await fetch('/api/online', { cache: 'no-store' });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (mounted) setOnlineCount(typeof data.online === 'number' ? data.online : null);
+      } catch {}
+    };
+    fetchOnline();
+    const interval = setInterval(fetchOnline, 500);
+    return () => { mounted = false; clearInterval(interval); };
   }, []);
 
   return (
@@ -41,7 +49,7 @@ export default function Hero() {
         <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/10 backdrop-blur-md border border-white/20 mb-8">
           <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
           <span className="text-sm font-medium text-white/90">
-            {onlineCount} geeks online now
+            {onlineCount === null ? '—' : onlineCount} geeks online now
           </span>
         </div>
 
@@ -66,13 +74,26 @@ export default function Hero() {
 
         {/* CTA Buttons */}
         <div className="flex flex-col sm:flex-row gap-4 justify-center items-center mb-16">
-          <Link
-            href="/live"
+          <button
+            onClick={() => {
+              const { protocol, host } = window.location;
+              let target = `${protocol}//live.${host}`;
+              // Handle localhost specially: live.localhost:3000
+              if (host.includes('localhost')) {
+                const port = host.split(':')[1] ? `:${host.split(':')[1]}` : '';
+                target = `${protocol}//live.localhost${port}`;
+              }
+              // If already on live subdomain, go to root of live
+              if (host.startsWith('live.')) {
+                target = `${protocol}//${host}`;
+              }
+              window.location.href = target;
+            }}
             className="group inline-flex items-center gap-3 px-8 py-4 bg-primary hover:bg-primary/90 text-white font-semibold text-lg rounded-xl transition-all duration-300 shadow-lg hover:shadow-primary/25 hover:scale-105"
           >
             Start Chatting Free
             <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
-          </Link>
+          </button>
           
           <button
             onClick={() => {

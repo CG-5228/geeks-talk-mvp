@@ -17,7 +17,7 @@ export default function ChatDashboard() {
   const [active, setActive] = useState<Channel | null>(null);
   const [messages, setMessages] = useState<LiveMessage[]>([]);
   const [showDetails, setShowDetails] = useState(false);
-  
+
   // DM state
   const [dmConversations, setDMConversations] = useState<DMConversationType[]>([]);
   const [activeDM, setActiveDM] = useState<DMConversationType | null>(null);
@@ -29,12 +29,12 @@ export default function ChatDashboard() {
   useEffect(() => {
     // Fetch channels
     fetch('/api/live/channels').then(r => r.json()).then((data) => {
-      console.log('Channels API response:', data);
+
       const pub = data.public as Channel[];
       const privateOwned = data.privateOwned as Channel[];
       // Combine public and private channels
       const allChannels = [...pub, ...privateOwned];
-      console.log('All channels:', allChannels);
+
       setChannels(allChannels);
       setActive(allChannels[0] ?? null);
     }).catch((error) => {
@@ -43,7 +43,7 @@ export default function ChatDashboard() {
 
     // Fetch DM conversations
     fetch('/api/live/dms').then(r => r.json()).then((data) => {
-      console.log('DM conversations loaded:', data);
+
       setDMConversations(data.conversations || []);
     }).catch((error) => {
       console.error('Error loading DM conversations:', error);
@@ -68,46 +68,215 @@ export default function ChatDashboard() {
       .catch(() => setDMMessages([]));
   }, [activeDM?.id]);
 
-  const handleSendMessage = async (text: string) => {
+  // Poll for new messages in real-time
+  useEffect(() => {
+    if (active) {
+      const pollInterval = setInterval(() => {
+        fetch(`/api/live/messages?channel=${encodeURIComponent(active.id)}&limit=50`)
+          .then(r => r.json())
+          .then((data) => {
+            const newMessages = (data.messages || []) as LiveMessage[];
+            setMessages(prev => {
+              // Check if messages have actually changed
+              if (prev.length !== newMessages.length ||
+                  prev[prev.length - 1]?.id !== newMessages[newMessages.length - 1]?.id) {
+                return newMessages;
+              }
+              return prev;
+            });
+          })
+          .catch(() => {}); // Silent fail for polling
+      }, 2000); // Poll every 2 seconds
+
+      return () => clearInterval(pollInterval);
+    }
+  }, [active?.id]);
+
+  // Poll for new DM messages in real-time
+  useEffect(() => {
+    if (activeDM) {
+      const pollInterval = setInterval(() => {
+        fetch(`/api/live/dms/${activeDM.id}`)
+          .then(r => r.json())
+          .then((data) => {
+            const newMessages = data.messages || [];
+            setDMMessages(prev => {
+              // Check if messages have actually changed
+              if (prev.length !== newMessages.length ||
+                  prev[prev.length - 1]?.id !== newMessages[newMessages.length - 1]?.id) {
+                return newMessages;
+              }
+              return prev;
+            });
+          })
+          .catch(() => {}); // Silent fail for polling
+      }, 2000); // Poll every 2 seconds
+
+      return () => clearInterval(pollInterval);
+    }
+  }, [activeDM?.id]);
+
+  const handleUnsendMessage = async (messageId: string, messageType: 'channel' | 'dm') => {
+    try {
+      const endpoint = messageType === 'channel'
+        ? `/api/live/messages/${messageId}`
+        : `/api/live/dms/message/${messageId}`;
+
+      const response = await fetch(endpoint, {
+        method: 'DELETE',
+      });
+
+      if (response.ok) {
+        // Optimistically remove the message from UI
+        if (messageType === 'channel') {
+          setMessages(prev => prev.filter(msg => msg.id !== messageId));
+        } else {
+          setDMMessages(prev => prev.filter(msg => msg.id !== messageId));
+        }
+
+      } else {
+        const errorData = await response.json();
+        alert(errorData.error || 'Failed to unsend message');
+      }
+    } catch (error) {
+      console.error('Failed to unsend message:', error);
+      alert('Failed to unsend message');
+    }
+  };
+
+  const handleSendMessage = async (text: string, replyToId?: string) => {
     if (viewMode === 'channel' && active) {
+      // Find the message being replied to for optimistic UI
+      let replyToData = null;
+      if (replyToId) {
+        const repliedMessage = messages.find(m => m.id === replyToId);
+        if (repliedMessage) {
+          replyToData = {
+            id: repliedMessage.id,
+            content: repliedMessage.content,
+            authorName: repliedMessage.authorName,
+            authorImage: repliedMessage.authorImage,
+          };
+        }
+      }
+
       const optimistic: LiveMessage = {
         id: `tmp-${Math.random().toString(36).slice(2)}`,
         channelId: active.id,
-        authorId: 'me',
-        authorName: 'You',
+        authorId: session?.user?.id || 'unknown',
+        authorName: session?.user?.name || 'You',
+        authorImage: session?.user?.image || null,
         content: text,
         type: 'text',
         createdAt: new Date().toISOString(),
+        replyToId: replyToId,
+        replyTo: replyToData,
       };
       setMessages(prev => [...prev, optimistic]);
       try {
-        const res = await fetch('/api/live/messages', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ channelId: active.id, content: text }) });
+
+        const res = await fetch('/api/live/messages', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Cookie': document.cookie // Ensure cookies are sent
+          },
+          credentials: 'include', // Include credentials
+          body: JSON.stringify({ channelId: active.id, content: text, replyToId })
+        });
+
         if (res.ok) {
           const created = await res.json();
-          setMessages(prev => prev.map(m => m.id === optimistic.id ? created : m));
+
+          // Preserve reply context if API doesn't hydrate it
+          const createdWithReply = {
+            ...created,
+            replyToId: created.replyToId ?? optimistic.replyToId,
+            replyTo: created.replyTo ?? optimistic.replyTo,
+          } as LiveMessage;
+          setMessages(prev => prev.map(m => m.id === optimistic.id ? createdWithReply : m));
         } else {
-          setMessages(prev => prev.filter(m => m.id !== optimistic.id));
+          const errorData = await res.json().catch(() => ({ error: 'Failed to send message' }));
+          console.error('Failed to send message:', errorData);
+          // Keep the message but mark it as failed
+          setMessages(prev => prev.map(m => m.id === optimistic.id ? { ...m, content: `${m.content} (Failed to send)` } : m));
         }
-      } catch {
-        setMessages(prev => prev.filter(m => m.id !== optimistic.id));
+      } catch (error) {
+        console.error('Network error sending message:', error);
+        // Keep the message but mark it as failed
+        setMessages(prev => prev.map(m => m.id === optimistic.id ? { ...m, content: `${m.content} (Network error)` } : m));
       }
     } else if (viewMode === 'dm' && activeDM) {
+      // Find the message being replied to for optimistic UI
+      let replyToData = null;
+      if (replyToId) {
+        const repliedMessage = dmMessages.find(m => m.id === replyToId);
+        if (repliedMessage) {
+          replyToData = {
+            id: repliedMessage.id,
+            content: repliedMessage.content,
+            sender: {
+              id: repliedMessage.sender.id,
+              name: repliedMessage.sender.name,
+              image: repliedMessage.sender.image,
+            },
+          };
+        }
+      }
+
+      const optimisticDM = {
+        id: `tmp-dm-${Math.random().toString(36).slice(2)}`,
+        conversationId: activeDM.id,
+        senderId: session?.user?.id || 'unknown',
+        receiverId: activeDM.otherUser.id,
+        content: text,
+        read: false,
+        createdAt: new Date().toISOString(),
+        replyToId: replyToId,
+        replyTo: replyToData,
+        sender: {
+          id: session?.user?.id || 'unknown',
+          name: session?.user?.name || 'You',
+          username: 'you',
+          image: session?.user?.image || null
+        },
+        receiver: activeDM.otherUser
+      };
+      setDMMessages(prev => [...prev, optimisticDM]);
+
       try {
-        const res = await fetch('/api/live/dms', { 
-          method: 'POST', 
-          headers: { 'Content-Type': 'application/json' }, 
-          body: JSON.stringify({ receiverId: activeDM.otherUser.id, content: text }) 
+        const res = await fetch('/api/live/dms', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Cookie': document.cookie // Ensure cookies are sent
+          },
+          credentials: 'include', // Include credentials
+          body: JSON.stringify({ receiverId: activeDM.otherUser.id, content: text, replyToId })
         });
         if (res.ok) {
           const created = await res.json();
-          setDMMessages(prev => [...prev, created]);
+          // Preserve reply context if API doesn't hydrate it yet
+          const createdWithReply = {
+            ...created,
+            replyToId: created.replyToId ?? optimisticDM.replyToId,
+            replyTo: created.replyTo ?? optimisticDM.replyTo,
+          };
+          setDMMessages(prev => prev.map(m => m.id === optimisticDM.id ? createdWithReply : m));
           // Refresh DM conversations to update last message
           fetch('/api/live/dms').then(r => r.json()).then((data) => {
             setDMConversations(data.conversations || []);
           }).catch(() => {});
+        } else {
+          const errorData = await res.json().catch(() => ({ error: 'Failed to send DM' }));
+          console.error('Failed to send DM:', errorData);
+          // Keep the message but mark it as failed
+          setDMMessages(prev => prev.map(m => m.id === optimisticDM.id ? { ...m, content: `${m.content} (Failed to send)` } : m));
         }
       } catch (error) {
-        console.error('Failed to send DM:', error);
+        console.error('Network error sending DM:', error);
+        // Keep the message but mark it as failed
+        setDMMessages(prev => prev.map(m => m.id === optimisticDM.id ? { ...m, content: `${m.content} (Network error)` } : m));
       }
     }
   };
@@ -137,38 +306,38 @@ export default function ChatDashboard() {
 
   const handleStartDM = async (userId: string) => {
     try {
-      console.log('Starting DM with user:', userId);
-      const res = await fetch('/api/live/dms', { 
-        method: 'POST', 
-        headers: { 'Content-Type': 'application/json' }, 
-        body: JSON.stringify({ receiverId: userId, content: 'Hello!' }) 
+
+      const res = await fetch('/api/live/dms', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ receiverId: userId, content: 'Hello!' })
       });
-      
+
       if (res.ok) {
-        console.log('DM created successfully');
+
         // Refresh DM conversations
         const refreshRes = await fetch('/api/live/dms');
         if (refreshRes.ok) {
           const data = await refreshRes.json();
-          console.log('Refreshed conversations:', data);
+
           setDMConversations(data.conversations || []);
-          
+
           // Auto-select the new conversation
-          const newConversation = data.conversations?.find((c: any) => 
+          const newConversation = data.conversations?.find((c: any) =>
             c.otherUser.id === userId
           );
-          
+
           if (newConversation) {
-            console.log('Found new conversation:', newConversation);
+
             setActiveDM(newConversation);
             setActive(null);
             setViewMode('dm');
             setShowDetails(true);
-            
+
             // Also switch to DM view in sidebar
             setSidebarView('dms');
           } else {
-            console.log('New conversation not found in list');
+
             // Fallback: just switch to DM view
             setViewMode('dm');
             setSidebarView('dms');
@@ -208,7 +377,7 @@ export default function ChatDashboard() {
   // Show loading state while checking authentication
   if (status === 'loading') {
     return (
-      <div className="h-[calc(100vh-var(--header-h))] flex items-center justify-center">
+      <div className="h-[calc(100vh-var(--header-h)-8px)] flex items-center justify-center">
         <div className="text-[rgba(220,235,255,0.8)]">Loading...</div>
       </div>
     );
@@ -217,12 +386,12 @@ export default function ChatDashboard() {
   // Show sign-in prompt if not authenticated
   if (status === 'unauthenticated') {
     return (
-      <div className="h-[calc(100vh-var(--header-h))] flex items-center justify-center">
+      <div className="h-[calc(100vh-var(--header-h)-8px)] flex items-center justify-center">
         <div className="text-center">
           <h2 className="text-xl font-semibold text-[rgba(236,245,255,0.95)] mb-2">Sign in required</h2>
           <p className="text-[rgba(220,235,255,0.8)] mb-4">You need to be signed in to use the chat.</p>
-          <a 
-            href="/signin" 
+          <a
+            href="/signin"
             className="inline-flex px-4 py-2 rounded-lg bg-primary text-primary-foreground font-medium hover:opacity-90 transition"
           >
             Sign In
@@ -233,7 +402,7 @@ export default function ChatDashboard() {
   }
 
   return (
-    <div className="h-[calc(100vh-var(--header-h))] min-h-0 overflow-hidden">
+    <div className="h-[calc(100vh-var(--header-h)-8px)] min-h-0 overflow-hidden">
       <div className="grid h-full grid-cols-[72px_var(--sidebar,320px)_minmax(0,1fr)_auto] transition-[grid-template-columns] duration-300">
         {/* Left: Server Rail */}
         <div className="overflow-hidden hidden lg:block">
@@ -249,17 +418,16 @@ export default function ChatDashboard() {
             onSelect={handleSelectChannel}
             onCreate={async (name: string, description?: string) => {
               try {
-                console.log('Creating channel:', { name, description, session: !!session });
+
                 const res = await fetch('/api/live/channels', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({ name, description })
                 });
-                console.log('Channel creation response status:', res.status);
+
                 if (res.ok) {
                   const newChannel = await res.json();
-                  console.log('New channel created:', newChannel);
-                  
+
                   // Refresh the entire channels list to ensure we have the latest data
                   const channelsRes = await fetch('/api/live/channels');
                   if (channelsRes.ok) {
@@ -268,7 +436,7 @@ export default function ChatDashboard() {
                     const privateOwned = channelsData.privateOwned as Channel[];
                     const allChannels = [...pub, ...privateOwned];
                     setChannels(allChannels);
-                    
+
                     // Find and select the newly created channel
                     const createdChannel = allChannels.find(c => c.id === newChannel.id);
                     if (createdChannel) {
@@ -299,8 +467,7 @@ export default function ChatDashboard() {
                   method: 'DELETE',
                 });
                 if (res.ok) {
-                  console.log('Channel deleted successfully:', channelId);
-                  
+
                   // Refresh the entire channels list from the database
                   const channelsRes = await fetch('/api/live/channels');
                   if (channelsRes.ok) {
@@ -309,7 +476,7 @@ export default function ChatDashboard() {
                     const privateOwned = channelsData.privateOwned as Channel[];
                     const allChannels = [...pub, ...privateOwned];
                     setChannels(allChannels);
-                    
+
                     // If the deleted channel was active, select the first available channel
                     if (active?.id === channelId) {
                       setActive(allChannels[0] || null);
@@ -329,14 +496,15 @@ export default function ChatDashboard() {
         </div>
 
         {/* Center: MessageThread + Input */}
-        <div className="overflow-hidden min-w-0 min-h-0 flex flex-col">
+        <div className="overflow-hidden min-w-0 min-h-0 flex flex-col p-2">
           {viewMode === 'channel' ? (
             <>
-              <Conversation 
-                channel={active} 
-                messages={messages} 
-                onToggleDetails={() => setShowDetails((v) => !v)} 
-                detailsOpen={showDetails} 
+              <Conversation
+                channel={active}
+                messages={messages}
+                onToggleDetails={() => setShowDetails((v) => !v)}
+                detailsOpen={showDetails}
+                onUnsendMessage={(messageId) => handleUnsendMessage(messageId, 'channel')}
               />
               {active && (
                 <MessageInput onSendMessage={handleSendMessage} />
@@ -344,12 +512,13 @@ export default function ChatDashboard() {
             </>
           ) : (
             <>
-              <DMConversation 
-                conversation={activeDM} 
-                messages={dmMessages} 
-                onToggleDetails={() => setShowDetails((v) => !v)} 
+              <DMConversation
+                conversation={activeDM}
+                messages={dmMessages}
+                onToggleDetails={() => setShowDetails((v) => !v)}
                 detailsOpen={showDetails}
                 onSendMessage={handleSendMessage}
+                onUnsendMessage={(messageId) => handleUnsendMessage(messageId, 'dm')}
               />
             </>
           )}
@@ -361,13 +530,13 @@ export default function ChatDashboard() {
         >
           {showDetails && (
             viewMode === 'channel' ? (
-              <ConversationDetails 
-                conversation={active} 
-                onClose={() => setShowDetails(false)} 
+              <ConversationDetails
+                conversation={active}
+                onClose={() => setShowDetails(false)}
               />
             ) : (
-              <DMDetails 
-                conversation={activeDM} 
+              <DMDetails
+                conversation={activeDM}
                 onClose={() => setShowDetails(false)}
                 onStartDM={handleStartDM}
               />
@@ -389,8 +558,7 @@ export default function ChatDashboard() {
             });
             if (res.ok) {
               const newChannel = await res.json();
-              console.log('New channel created from modal:', newChannel);
-              
+
               // Refresh the entire channels list to ensure we have the latest data
               const channelsRes = await fetch('/api/live/channels');
               if (channelsRes.ok) {
@@ -399,7 +567,7 @@ export default function ChatDashboard() {
                 const privateOwned = channelsData.privateOwned as Channel[];
                 const allChannels = [...pub, ...privateOwned];
                 setChannels(allChannels);
-                
+
                 // Find and select the newly created channel
                 const createdChannel = allChannels.find(c => c.id === newChannel.id);
                 if (createdChannel) {

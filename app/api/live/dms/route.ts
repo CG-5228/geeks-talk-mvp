@@ -129,7 +129,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const { receiverId, content } = await req.json();
+  const { receiverId, content, replyToId } = await req.json();
   
   if (!receiverId || !content?.trim()) {
     return NextResponse.json({ error: 'receiverId and content are required' }, { status: 400 });
@@ -160,7 +160,8 @@ export async function POST(req: Request) {
         conversationId,
         senderId,
         receiverId,
-        content: content.trim()
+        content: content.trim(),
+        replyToId
       },
       include: {
         sender: {

@@ -2,17 +2,36 @@
 import { useState, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
 import GroupList from './GroupList';
+import GroupRoom from './GroupRoom';
 import { Channel } from '@/types/live';
 
 export default function VoiceChannelList() {
   const { data: session } = useSession();
   const [channels, setChannels] = useState<Channel[]>([]);
   const [selectedChannel, setSelectedChannel] = useState<string | null>(null);
+  const [currentGroupId, setCurrentGroupId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     fetchChannels();
+    checkCurrentGroup();
   }, []);
+
+  const checkCurrentGroup = async () => {
+    if (!session?.user?.id) return;
+    
+    try {
+      const response = await fetch('/api/voice/groups/current');
+      if (response.ok) {
+        const data = await response.json();
+        if (data.groupId) {
+          setCurrentGroupId(data.groupId);
+        }
+      }
+    } catch (error) {
+      console.error('Error checking current group:', error);
+    }
+  };
 
   const fetchChannels = async () => {
     try {
@@ -41,11 +60,25 @@ export default function VoiceChannelList() {
     );
   }
 
+  // If user is already in a group, show the group room directly
+  if (currentGroupId) {
+    return (
+      <GroupRoom 
+        groupId={currentGroupId}
+        onLeave={() => {
+          setCurrentGroupId(null);
+          checkCurrentGroup();
+        }}
+      />
+    );
+  }
+
   if (selectedChannel) {
     return (
       <GroupList 
         channelId={selectedChannel}
         onBack={() => setSelectedChannel(null)}
+        onGroupJoined={(groupId) => setCurrentGroupId(groupId)}
       />
     );
   }

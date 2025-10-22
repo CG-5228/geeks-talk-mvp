@@ -23,6 +23,13 @@ export type LiveMessage = {
   content: string;
   type: 'text' | 'emoji' | 'sticker' | 'image';
   createdAt: string;
+  replyToId?: string | null;
+  replyTo?: {
+    id: string;
+    content: string;
+    authorName: string;
+    authorImage?: string | null;
+  } | null;
 };
 
 export type FollowStatus = 'pending' | 'mutual' | 'blocked';

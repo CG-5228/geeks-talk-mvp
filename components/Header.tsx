@@ -5,13 +5,12 @@ import { useSession } from 'next-auth/react';
 import Image from 'next/image';
 import ThemeSwitch from './ThemeSwitch';
 import UserMenu from './header/UserMenu';
-import { useRef, Suspense } from 'react';
-import LiveDropdown from './nav/LiveDropdown';
+import { useRouter } from 'next/navigation';
 
 export default function Header() {
   const { data: session } = useSession();
   const pathname = usePathname();
-  const liveBtnRef = useRef<HTMLButtonElement>(null);
+  const router = useRouter();
   return (
     <header className="sticky top-0 inset-x-0 w-full z-50 bg-[#0d0f10]/80 backdrop-blur-lg border-b border-transparent">
       <div className="w-full px-4 sm:px-6 lg:px-8">
@@ -40,19 +39,28 @@ export default function Header() {
           <div className="flex items-center gap-2 sm:gap-3 ml-auto whitespace-nowrap relative">
             <ThemeSwitch />
             <button
-              id="nav-live"
-              ref={liveBtnRef}
+              onClick={() => {
+                if (!session?.user) {
+                  const currentHost = window.location.host;
+                  // Handle localhost case
+                  const liveHost = currentHost.includes('localhost') 
+                    ? 'live.localhost:3000' 
+                    : currentHost.replace(/^[^.]+\./, 'live.');
+                  router.push(`/signin?callbackUrl=${encodeURIComponent(`${window.location.protocol}//${liveHost}/text`)}`);
+                } else {
+                  const currentHost = window.location.host;
+                  // Handle localhost case
+                  const liveHost = currentHost.includes('localhost') 
+                    ? 'live.localhost:3000' 
+                    : currentHost.replace(/^[^.]+\./, 'live.');
+                  window.location.href = `${window.location.protocol}//${liveHost}/text`;
+                }
+              }}
               className="btn-glow rounded-full px-4 py-2"
-              aria-haspopup="menu"
-              aria-expanded="false"
-              aria-controls="live-dropdown"
               type="button"
             >
               Live
             </button>
-            <Suspense fallback={null}>
-              <LiveDropdown triggerRef={liveBtnRef as any} />
-            </Suspense>
             {!session?.user ? (
               <>
                 <Link href="/signup" className="btn-primary rounded-full px-4 py-2">Sign up</Link>

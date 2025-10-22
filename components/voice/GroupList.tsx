@@ -37,9 +37,10 @@ interface Channel {
 interface GroupListProps {
   channelId: string;
   onBack: () => void;
+  onGroupJoined?: (groupId: string) => void;
 }
 
-export default function GroupList({ channelId, onBack }: GroupListProps) {
+export default function GroupList({ channelId, onBack, onGroupJoined }: GroupListProps) {
   const { data: session } = useSession();
   const [groups, setGroups] = useState<Group[]>([]);
   const [channel, setChannel] = useState<Channel | null>(null);
@@ -106,7 +107,7 @@ export default function GroupList({ channelId, onBack }: GroupListProps) {
 
   const handleJoinGroup = async (groupId: string) => {
     if (!session?.user?.id) return;
-    
+
     setJoining(groupId);
     try {
       const response = await fetch(`/api/voice/groups/${groupId}/join`, {
@@ -118,17 +119,19 @@ export default function GroupList({ channelId, onBack }: GroupListProps) {
 
       if (response.ok) {
         const data = await response.json();
-        console.log('Join response:', data);
+
         // Navigate to the voice room immediately
         setSelectedGroup(groupId);
-        console.log('Navigating to group room for groupId:', groupId);
+
+        // Notify parent component that user joined a group
+        onGroupJoined?.(groupId);
         // Refresh groups to show updated member counts
         fetchGroups();
         // TODO: Initialize LiveKit connection with data.liveKitToken
       } else {
         const error = await response.json();
         console.error('Join group error:', error);
-        
+
         if (error.currentGroup) {
           setUserCurrentGroup(error.currentGroup);
           showDialog({
@@ -163,13 +166,13 @@ export default function GroupList({ channelId, onBack }: GroupListProps) {
 
   const handleLeaveCurrentGroupAndJoin = async (targetGroupId: string) => {
     if (!userCurrentGroup) return;
-    
+
     try {
       // Leave current group
       const leaveResponse = await fetch(`/api/voice/groups/${userCurrentGroup.id}/leave`, {
         method: 'POST',
       });
-      
+
       if (leaveResponse.ok) {
         setUserCurrentGroup(null);
         // Now join the target group
@@ -234,7 +237,7 @@ export default function GroupList({ channelId, onBack }: GroupListProps) {
 
   if (selectedGroup) {
     return (
-      <GroupRoom 
+      <GroupRoom
         groupId={selectedGroup}
         onLeave={handleLeaveGroup}
       />
@@ -270,7 +273,7 @@ export default function GroupList({ channelId, onBack }: GroupListProps) {
             </p>
           </div>
         </div>
-        
+
         {/* Cleanup Button - only show if user is in multiple groups */}
         {groups.some(group => group.members.some(member => member.userId === session?.user?.id)) && (
           <button
@@ -312,7 +315,7 @@ export default function GroupList({ channelId, onBack }: GroupListProps) {
         {groups.map((group) => {
           const isUserInGroup = group.members.some(member => member.userId === session?.user?.id);
           const isFull = group.memberCount >= group.maxMembers;
-          
+
           return (
             <div
               key={group.id}
@@ -416,7 +419,7 @@ export default function GroupList({ channelId, onBack }: GroupListProps) {
           </p>
         </div>
       )}
-      
+
       {/* Styled Dialog */}
       <DialogComponent />
     </div>

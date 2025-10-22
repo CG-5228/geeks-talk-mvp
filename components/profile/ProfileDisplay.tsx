@@ -3,6 +3,8 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import { MapPin, Calendar, Users, Settings } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import LikeButton from './LikeButton';
 
 const DEFAULT_AVATAR = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128"%3E%3Ccircle cx="64" cy="64" r="64" fill="%23334155"/%3E%3Cpath d="M64 64a20 20 0 100-40 20 20 0 000 40zM32 96c0-16 14.4-28 32-28s32 12 32 28" fill="%23475569"/%3E%3C/svg%3E';
 
@@ -15,9 +17,87 @@ type ProfileData = {
   createdAt?: Date | string;
   friendsCount: number;
   isOwnProfile: boolean;
+  userId?: string;
+  likesCount?: number;
+  isLiked?: boolean;
 };
 
+interface UserStats {
+  totalMessages: number;
+  messagesToday: number;
+  totalChannels: number;
+  helpfulPercentage: number;
+  userStreak: number;
+  onlineStatus: string;
+  lastSeen: string | null;
+  likesCount: number;
+  totalLikes: number;
+  activity: any;
+  timestamp?: string;
+}
+
 export default function ProfileDisplay({ profile }: { profile: ProfileData }) {
+  const [stats, setStats] = useState<UserStats | null>(null);
+  const [realtimeStats, setRealtimeStats] = useState<Partial<UserStats>>({});
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchUserStats();
+  }, [profile.userId]);
+
+  // Set up real-time updates
+  useEffect(() => {
+    if (!profile.userId) return;
+
+    const eventSource = new EventSource(`/api/user/realtime?userId=${profile.userId}`);
+    
+    eventSource.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        setRealtimeStats(data);
+      } catch (error) {
+        console.error('Failed to parse real-time user data:', error);
+      }
+    };
+    
+    eventSource.onerror = (error) => {
+      console.error('Real-time user connection error:', error);
+    };
+    
+    return () => {
+      eventSource.close();
+    };
+  }, [profile.userId]);
+
+  const fetchUserStats = async () => {
+    try {
+      const response = await fetch(`/api/user/stats?userId=${profile.userId}`);
+      const data = await response.json();
+      setStats(data);
+    } catch (error) {
+      console.error('Failed to fetch user stats:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Use real-time data when available, fallback to period data
+  const currentStats = {
+    totalMessages: realtimeStats.totalMessages ?? stats?.totalMessages ?? 0,
+    totalChannels: realtimeStats.totalChannels ?? stats?.totalChannels ?? 0,
+    helpfulPercentage: realtimeStats.helpfulPercentage ?? stats?.helpfulPercentage ?? 0,
+    userStreak: realtimeStats.userStreak ?? stats?.userStreak ?? 0,
+    likesCount: realtimeStats.likesCount ?? stats?.likesCount ?? 0
+  };
+
+  // Helper function to format large numbers
+  function formatNumber(num: number): string {
+    if (num >= 1000) {
+      return (num / 1000).toFixed(1) + 'k';
+    }
+    return num.toString();
+  }
+
   return (
     <div className="space-y-6">
       {/* Header with avatar and basic info */}
@@ -67,7 +147,7 @@ export default function ProfileDisplay({ profile }: { profile: ProfileData }) {
           )}
 
           {/* Meta info */}
-          <div className="mt-4 flex flex-wrap gap-4 text-sm text-muted-foreground">
+          <div className="mt-4 flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
             {profile.createdAt && (
               <div className="flex items-center gap-1.5">
                 <Calendar className="h-4 w-4" />
@@ -83,26 +163,53 @@ export default function ProfileDisplay({ profile }: { profile: ProfileData }) {
               <Users className="h-4 w-4" />
               <span>{profile.friendsCount} friends</span>
             </div>
+            {!profile.isOwnProfile && profile.userId && (
+              <LikeButton
+                userId={profile.userId}
+                initialLikesCount={profile.likesCount || 0}
+                initialIsLiked={profile.isLiked || false}
+              />
+            )}
           </div>
         </div>
       </div>
 
       {/* Activity stats */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        {[
-          { label: 'Messages', value: '1.2k' },
-          { label: 'Channels', value: '12' },
-          { label: 'Helpful', value: '89%' },
-          { label: 'Streak', value: '7d' },
-        ].map((stat) => (
-          <div
-            key={stat.label}
-            className="rounded-xl border border-border/20 bg-card/30 backdrop-blur-xl p-4 text-center"
-          >
-            <div className="text-2xl font-semibold text-foreground">{stat.value}</div>
-            <div className="mt-1 text-xs text-muted-foreground">{stat.label}</div>
-          </div>
-        ))}
+        {loading ? (
+          // Loading state
+          Array.from({ length: 4 }).map((_, index) => (
+            <div
+              key={index}
+              className="rounded-xl border border-border/20 bg-card/30 backdrop-blur-xl p-4 text-center"
+            >
+              <div className="animate-pulse">
+                <div className="h-8 bg-muted/20 rounded mb-2"></div>
+                <div className="h-4 bg-muted/20 rounded w-16 mx-auto"></div>
+              </div>
+            </div>
+          ))
+        ) : (
+          [
+            { label: 'Messages', value: formatNumber(currentStats.totalMessages) },
+            { label: 'Channels', value: currentStats.totalChannels.toString() },
+            { label: 'Helpful', value: `${currentStats.helpfulPercentage}%` },
+            { label: 'Streak', value: `${currentStats.userStreak}d` },
+          ].map((stat) => (
+            <div
+              key={stat.label}
+              className="rounded-xl border border-border/20 bg-card/30 backdrop-blur-xl p-4 text-center relative"
+            >
+              <div className="text-2xl font-semibold text-foreground">{stat.value}</div>
+              <div className="mt-1 text-xs text-muted-foreground">{stat.label}</div>
+              {realtimeStats.timestamp && (
+                <div className="absolute top-2 right-2">
+                  <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                </div>
+              )}
+            </div>
+          ))
+        )}
       </div>
 
       {/* Recent activity */}

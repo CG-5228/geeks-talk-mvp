@@ -12,6 +12,7 @@ interface DMListProps {
   activeConversationId: string | null;
   onSelectConversation: (conversationId: string) => void;
   onShowFriends?: () => void;
+  onStartDM?: (userId: string) => void;
   collapsed?: boolean;
 }
 
@@ -22,6 +23,7 @@ export default function DMList({
   activeConversationId, 
   onSelectConversation, 
   onShowFriends,
+  onStartDM,
   collapsed = false 
 }: DMListProps) {
   const [showStartDialog, setShowStartDialog] = useState(false);
@@ -164,8 +166,7 @@ export default function DMList({
         open={showStartDialog} 
         onClose={() => setShowStartDialog(false)}
         onStartDM={(userId) => {
-          // This would be handled by the parent component
-          console.log('Start DM with user:', userId);
+          onStartDM?.(userId);
           setShowStartDialog(false);
         }}
       />

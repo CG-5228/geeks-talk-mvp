@@ -126,6 +126,7 @@ export default function ChatsSidebar({
             activeConversationId={activeDMId}
             onSelectConversation={onSelectDM || (() => {})}
             onShowFriends={onShowFriends}
+            onStartDM={onStartDM}
             collapsed={collapsed}
           />
         ) : (

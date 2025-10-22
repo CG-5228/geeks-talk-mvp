@@ -1,6 +1,31 @@
 "use client";
 import Link from 'next/link';
+import { useEffect, useState } from 'react';
 import { ArrowRight, Check, Users, MessageSquare, Mic } from 'lucide-react';
+
+function LiveOnlineBadge() {
+  const [online, setOnline] = useState<number | null>(null);
+  useEffect(() => {
+    let mounted = true;
+    const fetchOnline = async () => {
+      try {
+        const res = await fetch('/api/online', { cache: 'no-store' });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (mounted) setOnline(typeof data.online === 'number' ? data.online : null);
+      } catch {}
+    };
+    fetchOnline();
+    const id = setInterval(fetchOnline, 500);
+    return () => { mounted = false; clearInterval(id); };
+  }, []);
+  return (
+    <div className="flex items-center gap-2">
+      <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
+      <span>{online === null ? '—' : online} geeks online now</span>
+    </div>
+  );
+}
 
 const benefits = [
   "Join 500+ active members",
@@ -72,10 +97,7 @@ export default function FinalCTA() {
         {/* Trust indicators */}
         <div className="mt-12 pt-8 border-t border-white/10">
           <div className="flex flex-wrap justify-center items-center gap-8 text-white/60 text-sm">
-            <div className="flex items-center gap-2">
-              <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
-              <span>127 geeks online now</span>
-            </div>
+            <LiveOnlineBadge />
             <div>•</div>
             <div>No spam, community-moderated</div>
             <div>•</div>

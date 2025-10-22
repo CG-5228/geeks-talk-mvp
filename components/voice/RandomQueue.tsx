@@ -2,16 +2,18 @@
 import { useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { Users, UserPlus, Clock } from 'lucide-react';
+import { useStyledDialog } from '../ui/StyledDialog';
 
 export default function RandomQueue() {
   const { data: session } = useSession();
   const [queueStatus, setQueueStatus] = useState<'idle' | 'waiting' | 'matched'>('idle');
   const [queueType, setQueueType] = useState<'1v1' | 'group'>('1v1');
   const [waitingTime, setWaitingTime] = useState(0);
+  const { showDialog, DialogComponent } = useStyledDialog();
 
   const handleJoinQueue = async (type: '1v1' | 'group') => {
     if (!session?.user?.id) return;
-    
+
     setQueueType(type);
     setQueueStatus('waiting');
     setWaitingTime(0);
@@ -44,12 +46,20 @@ export default function RandomQueue() {
         }
       } else {
         const error = await response.json();
-        alert(error.error || 'Failed to join queue');
+        showDialog({
+          title: 'Failed to join queue',
+          message: error.error || 'Failed to join queue',
+          type: 'error'
+        });
         setQueueStatus('idle');
       }
     } catch (error) {
       console.error('Error joining queue:', error);
-      alert('Failed to join queue');
+      showDialog({
+        title: 'Connection Error',
+        message: 'Failed to join queue. Please check your connection and try again.',
+        type: 'error'
+      });
       setQueueStatus('idle');
     }
   };
@@ -155,7 +165,7 @@ export default function RandomQueue() {
             <button
               onClick={() => {
                 // TODO: Navigate to voice room
-                console.log('Starting voice chat...');
+
               }}
               className="w-full py-3 px-6 bg-primary text-primary-foreground rounded-lg font-medium hover:bg-primary/90 transition-colors"
             >
@@ -201,6 +211,9 @@ export default function RandomQueue() {
           </p>
         </div>
       </div>
+
+      {/* Styled Dialog */}
+      <DialogComponent />
     </div>
   );
 }

@@ -5,14 +5,27 @@ import { PrismaAdapter } from "@next-auth/prisma-adapter";
 import { db } from "@/lib/db";
 import { verifyPassword } from "@/lib/password";
 
+// Debug: Log environment variables in development
+if (process.env.NODE_ENV === 'development') {
+
+  console.log('GOOGLE_CLIENT_ID value:', process.env.GOOGLE_CLIENT_ID?.substring(0, 10) + '...');
+
+}
+
 export const authOptions: NextAuthOptions = {
-  adapter: PrismaAdapter(db),
+  secret: process.env.NEXTAUTH_SECRET,
+  debug: process.env.NODE_ENV === 'development',
   providers: [
     GoogleProvider({
       clientId: process.env.GOOGLE_CLIENT_ID as string,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET as string,
       authorization: {
-        params: { prompt: "consent", access_type: "offline", response_type: "code" },
+        params: {
+          prompt: "consent",
+          access_type: "offline",
+          response_type: "code",
+          scope: "openid email profile"
+        },
       },
     }),
     CredentialsProvider({
@@ -38,18 +51,159 @@ export const authOptions: NextAuthOptions = {
       },
     }),
   ],
-  session: { strategy: 'jwt' },
+  session: {
+    strategy: 'jwt',
+    maxAge: 30 * 24 * 60 * 60, // 30 days
+  },
+  cookies: {
+    sessionToken: {
+      name: `next-auth.session-token`,
+      options: {
+        httpOnly: true,
+        sameSite: 'lax',
+        path: '/',
+        domain: process.env.NODE_ENV === 'production' ? '.geekstalk.co' : undefined,
+        secure: process.env.NODE_ENV === 'production',
+      },
+    },
+    callbackUrl: {
+      name: `next-auth.callback-url`,
+      options: {
+        sameSite: 'lax',
+        path: '/',
+        domain: process.env.NODE_ENV === 'production' ? '.geekstalk.co' : undefined,
+        secure: process.env.NODE_ENV === 'production',
+      },
+    },
+    csrfToken: {
+      name: `next-auth.csrf-token`,
+      options: {
+        httpOnly: true,
+        sameSite: 'lax',
+        path: '/',
+        domain: process.env.NODE_ENV === 'production' ? '.geekstalk.co' : undefined,
+        secure: process.env.NODE_ENV === 'production',
+      },
+    },
+    pkceCodeVerifier: {
+      name: `next-auth.pkce.code_verifier`,
+      options: {
+        httpOnly: true,
+        sameSite: 'lax',
+        path: '/',
+        domain: process.env.NODE_ENV === 'production' ? '.geekstalk.co' : undefined,
+        secure: process.env.NODE_ENV === 'production',
+        maxAge: 60 * 15, // 15 minutes
+      },
+    },
+    state: {
+      name: `next-auth.state`,
+      options: {
+        httpOnly: true,
+        sameSite: 'lax',
+        path: '/',
+        domain: process.env.NODE_ENV === 'production' ? '.geekstalk.co' : undefined,
+        secure: process.env.NODE_ENV === 'production',
+        maxAge: 60 * 15, // 15 minutes
+      },
+    },
+    nonce: {
+      name: `next-auth.nonce`,
+      options: {
+        httpOnly: true,
+        sameSite: 'lax',
+        path: '/',
+        domain: process.env.NODE_ENV === 'production' ? '.geekstalk.co' : undefined,
+        secure: process.env.NODE_ENV === 'production',
+      },
+    },
+  },
+  events: {
+    async signOut({ token }) {
+      // Update user's lastSeen when they sign out
+      if (token?.id) {
+        try {
+          await db.user.update({
+            where: { id: (token as any).id },
+            data: {
+              lastSeen: new Date(),
+              onlineStatus: 'offline'
+            }
+          });
+          console.log('✅ Updated lastSeen on signOut for user:', (token as any).id);
+        } catch (error) {
+          console.error('❌ Error updating lastSeen on signOut:', error);
+        }
+      }
+    },
+  },
   callbacks: {
-    async jwt({ token, user }) {
+    async signIn({ user, account, profile }) {
+
+      // Allow Google OAuth sign-in
+      if (account?.provider === 'google') {
+
+        return true;
+      }
+      // Allow credentials sign-in
+      if (account?.provider === 'credentials') {
+
+        return true;
+      }
+
+      return false;
+    },
+    async jwt({ token, user, account }) {
       if (user) {
-        (token as any).id = (user as any).id;
-        token.name = user.name;
-        token.email = user.email;
-        (token as any).image = (user as any).image;
+
+        // For Google OAuth, create or find user in database
+        if (account?.provider === 'google' && user.email) {
+          try {
+            let dbUser = await db.user.findUnique({ where: { email: user.email } });
+
+            if (!dbUser) {
+              // Create new user
+              dbUser = await db.user.create({
+                data: {
+                  email: user.email,
+                  name: user.name,
+                  image: user.image,
+                  emailVerified: new Date(),
+                }
+              });
+
+            } else {
+
+            }
+
+            (token as any).id = dbUser.id;
+            token.name = dbUser.name || user.name;
+            token.email = dbUser.email;
+            (token as any).image = dbUser.image || user.image;
+          } catch (error) {
+            console.error('❌ Error in JWT callback:', error);
+            // Fallback to user data from OAuth
+            (token as any).id = user.id;
+            token.name = user.name;
+            token.email = user.email;
+            (token as any).image = user.image;
+          }
+        } else {
+          // For credentials provider
+          (token as any).id = (user as any).id;
+          token.name = user.name;
+          token.email = user.email;
+          (token as any).image = (user as any).image;
+        }
       }
       return token;
     },
     async session({ session, token }) {
+      console.log('🔍 Session callback - token data:', {
+        tokenId: (token as any).id,
+        tokenEmail: token.email,
+        tokenName: token.name
+      });
       if (session.user) {
         (session.user as any).id = (token as any).id;
         session.user.name = token.name || session.user.name;
@@ -63,5 +217,4 @@ export const authOptions: NextAuthOptions = {
     signIn: '/signin',
   },
 };
-
 

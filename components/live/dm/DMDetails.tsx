@@ -17,12 +17,12 @@ interface User {
 
 const DEFAULT_AVATAR = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"%3E%3Ccircle cx="16" cy="16" r="16" fill="%23334155"/%3E%3Cpath d="M16 16a5 5 0 100-10 5 5 0 000 10zM8 24c0-4 3.6-7 8-7s8 3 8 7" fill="%23475569"/%3E%3C/svg%3E';
 
-export default function DMDetails({ 
-  conversation, 
-  onClose, 
-  onStartDM 
-}: { 
-  conversation: DMConversation | null; 
+export default function DMDetails({
+  conversation,
+  onClose,
+  onStartDM
+}: {
+  conversation: DMConversation | null;
   onClose?: () => void;
   onStartDM?: (userId: string) => void;
 }) {
@@ -52,7 +52,7 @@ export default function DMDetails({
   }, []);
 
   // Filter users based on search
-  const filteredUsers = users.filter(user => 
+  const filteredUsers = users.filter(user =>
     user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     user.username.toLowerCase().includes(searchQuery.toLowerCase())
   );
@@ -62,7 +62,7 @@ export default function DMDetails({
     const date = new Date(lastSeen);
     const now = new Date();
     const diffInMinutes = (now.getTime() - date.getTime()) / (1000 * 60);
-    
+
     if (diffInMinutes < 1) return 'Just now';
     if (diffInMinutes < 60) return `${Math.floor(diffInMinutes)}m ago`;
     if (diffInMinutes < 1440) return `${Math.floor(diffInMinutes / 60)}h ago`;
@@ -126,7 +126,7 @@ export default function DMDetails({
                 <button
                   key={user.id}
                   onClick={() => {
-                    console.log('Starting DM with user:', user.id, user.name);
+
                     onStartDM?.(user.id);
                     // Close the details panel after starting DM
                     onClose?.();
@@ -142,8 +142,8 @@ export default function DMDetails({
                       className="rounded-full"
                       unoptimized={!user.image}
                     />
-                    <PresenceDot 
-                      status={user.onlineStatus} 
+                    <PresenceDot
+                      status={user.onlineStatus}
                       size="sm"
                       className="absolute -bottom-0.5 -right-0.5"
                     />
@@ -165,8 +165,8 @@ export default function DMDetails({
           )}
         </div>
 
-        <StartDMDialog 
-          open={showStartDialog} 
+        <StartDMDialog
+          open={showStartDialog}
           onClose={() => setShowStartDialog(false)}
           onStartDM={(userId) => {
             onStartDM?.(userId);
@@ -202,8 +202,8 @@ export default function DMDetails({
               className="rounded-full"
               unoptimized={!conversation.otherUser.image}
             />
-            <PresenceDot 
-              status={conversation.otherUser.onlineStatus} 
+            <PresenceDot
+              status={conversation.otherUser.onlineStatus}
               size="md"
               className="absolute -bottom-0.5 -right-0.5"
             />
@@ -212,12 +212,12 @@ export default function DMDetails({
             <div className="text-lg font-semibold">{conversation.otherUser.name}</div>
             <div className="text-sm text-[rgba(220,235,255,0.7)]">@{conversation.otherUser.username}</div>
             <div className="text-xs text-[rgba(220,235,255,0.5)]">
-              {conversation.otherUser.onlineStatus === 'online' ? 'Online' : 
+              {conversation.otherUser.onlineStatus === 'online' ? 'Online' :
                conversation.otherUser.onlineStatus === 'away' ? 'Away' : 'Offline'}
             </div>
           </div>
         </div>
-        
+
         {conversation.lastMessage && (
           <div>
             <div className="text-xs text-[rgba(220,235,255,0.7)]">Last Message</div>

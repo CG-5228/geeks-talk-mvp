@@ -37,9 +37,12 @@ export async function GET(
       return NextResponse.json({ error: 'Conversation not found' }, { status: 404 });
     }
 
-    // Get messages for this conversation
+    // Get messages for this conversation (exclude unsent messages)
     const messages = await db.directMessage.findMany({
-      where: { conversationId },
+      where: { 
+        conversationId,
+        unsent: false // Only get non-unsent messages
+      },
       include: {
         sender: {
           select: {
@@ -56,6 +59,19 @@ export async function GET(
             username: true,
             image: true
           }
+        },
+        replyTo: {
+          select: {
+            id: true,
+            content: true,
+            sender: {
+              select: {
+                id: true,
+                name: true,
+                image: true
+              }
+            }
+          }
         }
       },
       orderBy: { createdAt: 'asc' }
@@ -69,6 +85,8 @@ export async function GET(
       receiverId: msg.receiverId,
       read: msg.read,
       createdAt: msg.createdAt.toISOString(),
+      replyToId: msg.replyToId,
+      replyTo: msg.replyTo,
       sender: msg.sender,
       receiver: msg.receiver
     }));

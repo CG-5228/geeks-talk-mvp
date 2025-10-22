@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { MessageSquare, Mic, PlaySquare } from 'lucide-react';
+import { MessageSquare, Mic, Video, PlaySquare } from 'lucide-react';
 
 interface Props {
   triggerRef: React.RefObject<HTMLElement>;
@@ -134,9 +134,10 @@ export default function LiveDropdown({ triggerRef }: Props) {
   const items = useMemo(() => [
     { label: 'Text Chat', href: '/live', icon: MessageSquare },
     { label: 'Voice Chat', href: '/voice', icon: Mic },
+    { label: 'Video Chat', href: '/video', icon: Video },
     { label: 'Tutorial Videos', href: '/live?tab=tutorials', icon: PlaySquare },
   ], []);
-  const currentTab = pathname === '/voice' ? 'voice' : pathname === '/live' ? 'text' : pathname.includes('tutorials') ? 'tutorials' : 'text';
+  const currentTab = pathname === '/voice' ? 'voice' : pathname === '/video' ? 'video' : pathname === '/live' ? 'text' : pathname.includes('tutorials') ? 'tutorials' : 'text';
   const listRef = useRef<HTMLDivElement>(null);
 
   const focusItem = (idx: number) => {
@@ -227,6 +228,7 @@ export default function LiveDropdown({ triggerRef }: Props) {
             {items.map((it) => {
               const Icon = it.icon;
               const active = (currentTab === 'voice' && it.href === '/voice') || 
+                             (currentTab === 'video' && it.href === '/video') ||
                              (currentTab === 'text' && it.href === '/live') ||
                              (currentTab === 'tutorials' && it.href.includes('tab=tutorials'));
               return (

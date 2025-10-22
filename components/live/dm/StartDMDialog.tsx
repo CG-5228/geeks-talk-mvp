@@ -57,7 +57,7 @@ export default function StartDMDialog({ open, onClose, onStartDM }: StartDMDialo
 
   const handleStartDM = () => {
     if (selectedUser) {
-      console.log('Starting DM with user from dialog:', selectedUser.id, selectedUser.name);
+
       onStartDM(selectedUser.id);
       handleClose(); // Close the dialog after starting DM
     }
@@ -139,8 +139,8 @@ export default function StartDMDialog({ open, onClose, onStartDM }: StartDMDialo
                       className="rounded-full"
                       unoptimized={!user.image}
                     />
-                    <PresenceDot 
-                      status={user.onlineStatus} 
+                    <PresenceDot
+                      status={user.onlineStatus}
                       size="sm"
                       className="absolute -bottom-0.5 -right-0.5"
                     />

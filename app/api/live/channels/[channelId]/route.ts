@@ -9,7 +9,7 @@ export async function DELETE(
 ) {
   const session = await getServerSession(authOptions);
   const userId = (session?.user as any)?.id;
-  
+
   if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
@@ -54,17 +54,15 @@ export async function DELETE(
       });
     });
 
-    console.log(`Channel ${channelId} deleted successfully by user ${userId}`);
-    
-    return NextResponse.json({ 
+    return NextResponse.json({
       message: 'Channel deleted successfully',
-      channelId: channelId 
+      channelId: channelId
     }, { status: 200 });
-    
+
   } catch (error) {
     console.error('Error deleting channel:', error);
-    return NextResponse.json({ 
-      error: 'Failed to delete channel' 
+    return NextResponse.json({
+      error: 'Failed to delete channel'
     }, { status: 500 });
   }
 }

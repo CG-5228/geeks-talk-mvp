@@ -37,6 +37,14 @@ export async function POST(request: Request) {
         },
     });
 
+    // Track message activity for analytics
+    try {
+        const { trackUserActivity } = await import('@/lib/analytics');
+        await trackUserActivity(authorId, 'message');
+    } catch (error) {
+        console.error('Failed to track message activity:', error);
+    }
+
     // TODO: Broadcast via Socket.IO when server is wired up
     return NextResponse.json(message, { status: 201 });
 }

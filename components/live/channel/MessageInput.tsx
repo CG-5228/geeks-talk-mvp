@@ -3,18 +3,28 @@ import { useEffect, useRef, useState } from 'react';
 import { Smile, Calculator } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import data from '@emoji-mart/data';
+import MessageReplyContext from '../message/MessageReplyContext';
 
 // Optimize: import picker once at module level
 const Picker = dynamic(() => import('@emoji-mart/react'), { ssr: false }) as any;
 const CalculatorModal = dynamic(() => import('@/components/live/calculator/Calculator'), { ssr: false });
 
 export interface MessageInputProps {
-  onSendMessage: (text: string) => void;
+  onSendMessage: (text: string, replyToId?: string) => void;
   maxChars?: number;
   disabled?: boolean;
+  replyContext?: {
+    message: {
+      id: string;
+      content: string;
+      authorName: string;
+      authorImage?: string | null;
+    };
+    onCancel: () => void;
+  };
 }
 
-export default function MessageInput({ onSendMessage, maxChars = 500, disabled }: MessageInputProps) {
+export default function MessageInput({ onSendMessage, maxChars = 500, disabled, replyContext }: MessageInputProps) {
   const [text, setText] = useState("");
   const taRef = useRef<HTMLTextAreaElement>(null);
   const [showEmoji, setShowEmoji] = useState(false);
@@ -46,8 +56,12 @@ export default function MessageInput({ onSendMessage, maxChars = 500, disabled }
   const send = () => {
     const t = text.trim();
     if (!t) return;
-    onSendMessage(t);
+    onSendMessage(t, replyContext?.message.id);
     setText("");
+    // Clear reply context after sending
+    if (replyContext) {
+      replyContext.onCancel();
+    }
     // keep focus
     requestAnimationFrame(() => taRef.current?.focus());
   };
@@ -78,7 +92,15 @@ export default function MessageInput({ onSendMessage, maxChars = 500, disabled }
   };
 
   return (
-    <div className="px-4 pb-3">
+    <div className="px-6 pb-4">
+      {/* Reply Context */}
+      {replyContext && (
+        <MessageReplyContext
+          message={replyContext.message}
+          onCancel={replyContext.onCancel}
+        />
+      )}
+      
       <div className="relative overflow-visible rounded-2xl bg-white/5 ring-1 ring-border/20 backdrop-blur-md p-2">
         <div className="flex items-end gap-2">
           {/* Emoji toggle on far left */}

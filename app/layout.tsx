@@ -1,9 +1,11 @@
 import React from 'react';
 import './globals.css';
-import Header from '../components/Header';
 import Providers from './providers';
 import { ThemeProvider } from 'next-themes';
 import ThemeColor from '@/components/ThemeColor';
+import { NotificationProvider } from '@/components/ui/NotificationSystem';
+import LiveSubdomainLayout from '@/components/live/LiveSubdomainLayout';
+import SessionSharer from '@/components/auth/SessionSharer';
 
 export default function RootLayout({
     children,
@@ -24,11 +26,15 @@ export default function RootLayout({
                     storageKey="geekstalk-theme"
                     disableTransitionOnChange
                 >
-                    <Providers>
-                        <Header />
-                        <ThemeColor />
-                        <main className="flex-1 w-full">{children}</main>
-                    </Providers>
+                    <NotificationProvider>
+                        <Providers>
+                            <SessionSharer />
+                            <ThemeColor />
+                            <LiveSubdomainLayout>
+                                {children}
+                            </LiveSubdomainLayout>
+                        </Providers>
+                    </NotificationProvider>
                 </ThemeProvider>
             </body>
         </html>
