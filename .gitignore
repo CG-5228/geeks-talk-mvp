@@ -11,6 +11,8 @@ pnpm-debug.log*
 .env.development.local
 .env.test.local
 .env.production.local
+# Allow .env.example to be committed
+!.env.example
 
 # Next.js
 .next/
