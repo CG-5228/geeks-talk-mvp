@@ -42,9 +42,11 @@ export async function POST(request: NextRequest) {
     }
 
     // Create 4 default groups
+    console.log('🌱 Creating 4 default groups for channel:', channelId);
     const groups = await Promise.all(
-      Array.from({ length: 4 }, (_, index) => 
-        db.voiceGroup.create({
+      Array.from({ length: 4 }, (_, index) => {
+        console.log(`🌱 Creating group ${index + 1} for channel ${channelId}`);
+        return db.voiceGroup.create({
           data: {
             channelId,
             groupNumber: index + 1,
@@ -71,9 +73,10 @@ export async function POST(request: NextRequest) {
               },
             },
           },
-        })
-      )
+        });
+      })
     );
+    console.log('🌱 Successfully created groups:', groups.length);
 
     return NextResponse.json({ 
       message: 'Default groups created successfully',

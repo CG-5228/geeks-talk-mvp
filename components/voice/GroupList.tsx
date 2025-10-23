@@ -90,18 +90,25 @@ export default function GroupList({ channelId, onBack, onGroupJoined }: GroupLis
   };
 
   const seedGroups = async () => {
+    console.log('🌱 Seeding groups for channel:', channelId);
     try {
       const response = await fetch(`/api/voice/groups/seed?channelId=${channelId}`, {
         method: 'POST',
       });
+      
       if (response.ok) {
         const data = await response.json();
+        console.log('🌱 Groups seeded successfully:', data);
         setGroups(data.groups || []);
+        setLoading(false);
       } else {
-        console.error('Failed to seed groups');
+        const errorData = await response.json();
+        console.error('🌱 Failed to seed groups:', errorData);
+        setLoading(false);
       }
     } catch (error) {
-      console.error('Error seeding groups:', error);
+      console.error('🌱 Error seeding groups:', error);
+      setLoading(false);
     }
   };
 

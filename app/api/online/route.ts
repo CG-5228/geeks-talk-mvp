@@ -4,8 +4,8 @@ import { db } from '@/lib/db';
 // Public endpoint: returns current online users count
 export async function GET() {
   try {
-    // Consider a user online if they've pinged within the last 10 seconds
-    const threshold = new Date(Date.now() - 10 * 1000);
+    // Consider a user online if they've pinged within the last 30 seconds
+    const threshold = new Date(Date.now() - 30 * 1000);
     const onlineUsers = await db.user.count({
       where: { lastSeen: { gte: threshold } },
     });
@@ -16,7 +16,7 @@ export async function GET() {
       select: { id: true, name: true, lastSeen: true, onlineStatus: true }
     });
 
-    console.log('🌐 Online API: Found', onlineUsers, 'online users (threshold: 10s)');
+    console.log('🌐 Online API: Found', onlineUsers, 'online users (threshold: 30s)');
     console.log('🌐 Online API: Users:', users.map(u => ({
       id: u.id,
       name: u.name,
