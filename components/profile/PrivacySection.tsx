@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from 'react';
-import { Download, Trash2 } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Download, Trash2, Check, X } from 'lucide-react';
 
 export default function PrivacySection() {
   const [privacy, setPrivacy] = useState({
@@ -10,6 +10,131 @@ export default function PrivacySection() {
     dmPermissions: 'everyone' as 'everyone' | 'friends' | 'nobody',
   });
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [downloading, setDownloading] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  // Load privacy settings on component mount
+  useEffect(() => {
+    const loadPrivacySettings = async () => {
+      try {
+        const response = await fetch('/api/user/privacy');
+        if (response.ok) {
+          const data = await response.json();
+          setPrivacy({
+            profileVisibility: data.profileVisibility,
+            showOnlineStatus: data.showOnlineStatus,
+            dmPermissions: data.dmPermissions,
+          });
+        }
+      } catch (error) {
+        console.error('Error loading privacy settings:', error);
+        setError('Failed to load privacy settings');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadPrivacySettings();
+  }, []);
+
+  // Save privacy settings
+  const savePrivacySettings = async () => {
+    setSaving(true);
+    setError(null);
+    
+    try {
+      const response = await fetch('/api/user/privacy', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(privacy),
+      });
+
+      if (response.ok) {
+        setSaved(true);
+        setTimeout(() => setSaved(false), 3000);
+      } else {
+        const errorData = await response.json();
+        setError(errorData.error || 'Failed to save settings');
+      }
+    } catch (error) {
+      console.error('Error saving privacy settings:', error);
+      setError('Failed to save settings');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Download user data
+  const downloadUserData = async () => {
+    setDownloading(true);
+    setError(null);
+    
+    try {
+      const response = await fetch('/api/user/data-download');
+      if (response.ok) {
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `geeks-talk-data-export-${new Date().toISOString().split('T')[0]}.json`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+      } else {
+        const errorData = await response.json();
+        setError(errorData.error || 'Failed to download data');
+      }
+    } catch (error) {
+      console.error('Error downloading data:', error);
+      setError('Failed to download data');
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  // Delete account
+  const deleteAccount = async () => {
+    setDeleting(true);
+    setError(null);
+    
+    try {
+      const response = await fetch('/api/user/delete-account', {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ confirmDeletion: true }),
+      });
+
+      if (response.ok) {
+        // Redirect to home page after successful deletion
+        window.location.href = '/';
+      } else {
+        const errorData = await response.json();
+        setError(errorData.error || 'Failed to delete account');
+      }
+    } catch (error) {
+      console.error('Error deleting account:', error);
+      setError('Failed to delete account');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-8">
@@ -104,9 +229,13 @@ export default function PrivacySection() {
         <div>
           <h3 className="text-sm font-medium text-foreground mb-3">Data management</h3>
           <div className="space-y-3">
-            <button className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-card/30 border border-border/20 text-foreground hover:bg-card/50 transition w-full sm:w-auto">
+            <button 
+              onClick={downloadUserData}
+              disabled={downloading}
+              className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-card/30 border border-border/20 text-foreground hover:bg-card/50 transition w-full sm:w-auto disabled:opacity-50"
+            >
               <Download className="h-4 w-4" />
-              <span className="text-sm">Download your data</span>
+              <span className="text-sm">{downloading ? 'Preparing download...' : 'Download your data'}</span>
             </button>
             <p className="text-xs text-muted-foreground">
               Request a copy of your personal data
@@ -138,8 +267,12 @@ export default function PrivacySection() {
                 >
                   Cancel
                 </button>
-                <button className="px-4 py-2 rounded-lg bg-red-500 text-white hover:bg-red-600 transition text-sm">
-                  Permanently delete
+                <button 
+                  onClick={deleteAccount}
+                  disabled={deleting}
+                  className="px-4 py-2 rounded-lg bg-red-500 text-white hover:bg-red-600 transition text-sm disabled:opacity-50"
+                >
+                  {deleting ? 'Deleting...' : 'Permanently delete'}
                 </button>
               </div>
             </div>
@@ -147,9 +280,28 @@ export default function PrivacySection() {
         </div>
       </div>
 
+      {/* Error/Success Messages */}
+      {error && (
+        <div className="rounded-lg border border-red-500/20 bg-red-500/5 p-4 flex items-center gap-2">
+          <X className="h-4 w-4 text-red-500" />
+          <span className="text-sm text-red-500">{error}</span>
+        </div>
+      )}
+
+      {saved && (
+        <div className="rounded-lg border border-green-500/20 bg-green-500/5 p-4 flex items-center gap-2">
+          <Check className="h-4 w-4 text-green-500" />
+          <span className="text-sm text-green-500">Settings saved successfully!</span>
+        </div>
+      )}
+
       <div className="pt-4">
-        <button className="px-6 py-2.5 rounded-lg bg-primary text-primary-foreground font-medium hover:opacity-90 transition">
-          Save preferences
+        <button 
+          onClick={savePrivacySettings}
+          disabled={saving}
+          className="px-6 py-2.5 rounded-lg bg-primary text-primary-foreground font-medium hover:opacity-90 transition disabled:opacity-50"
+        >
+          {saving ? 'Saving...' : 'Save preferences'}
         </button>
       </div>
     </div>
