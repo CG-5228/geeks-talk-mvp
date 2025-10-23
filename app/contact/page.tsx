@@ -285,7 +285,7 @@ export default function ContactPage() {
 
         {/* Dev Email */}
         <div className="text-[rgba(220,235,255,0.85)] text-sm">
-          Dev email: <a className="underline hover:text-white transition-colors" href="mailto:chris.g@geekstalk.co">chris.g@geekstalk.co</a>
+          Dev email: <a className="underline hover:text-white transition-colors" href="mailto:chris.g@geekstalk.co">Chris.G@geekstalk.org</a>
         </div>
       </div>
     </div>
