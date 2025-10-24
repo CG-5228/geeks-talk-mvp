@@ -8,6 +8,8 @@ import ReactionDisplay from '@/components/live/reactions/ReactionDisplay';
 import MessageActionMenu from '@/components/live/message/MessageActionMenu';
 import ReplyIndicator from '@/components/live/message/ReplyIndicator';
 import ForwardIndicator from '@/components/live/message/ForwardIndicator';
+import FilePreview from '@/components/live/message/FilePreview';
+import { parseFileAttachments } from '@/lib/fileUtils';
 
 // Default avatar as data URL to avoid 404s
 const DEFAULT_AVATAR = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"%3E%3Ccircle cx="16" cy="16" r="16" fill="%23334155"/%3E%3Cpath d="M16 16a5 5 0 100-10 5 5 0 000 10zM8 24c0-4 3.6-7 8-7s8 3 8 7" fill="%23475569"/%3E%3C/svg%3E';
@@ -26,6 +28,10 @@ const MessageItem = forwardRef<HTMLDivElement, { msg: LiveMessage; showDivider?:
         onUnsendMessage(msg.id);
       }
     };
+
+    // Parse file attachments from message content
+    const fileAttachments = parseFileAttachments(msg.content);
+    const textContent = msg.content.replace(/📎\s+.+/g, '').trim();
 
     return (
       <div
@@ -84,7 +90,7 @@ const MessageItem = forwardRef<HTMLDivElement, { msg: LiveMessage; showDivider?:
         <div className={`flex flex-col gap-1 ${isOwnMessage ? 'items-end' : ''}`}>
           <div
             ref={messageRef}
-            className={`relative text-[rgba(220,235,255,0.9)] whitespace-pre-wrap break-words cursor-pointer transition-all duration-200 max-w-fit ${
+            className={`relative transition-all duration-200 max-w-fit ${
               msg.content.startsWith('Forwarded from ')
                 ? isOwnMessage
                   ? 'bg-gradient-to-br from-blue-500/25 to-blue-600/15 rounded-2xl px-4 py-3 inline-block hover:from-blue-500/30 hover:to-blue-600/20 shadow-lg border border-blue-400/20'
@@ -100,9 +106,21 @@ const MessageItem = forwardRef<HTMLDivElement, { msg: LiveMessage; showDivider?:
               setShowActionMenu(true);
             }}
           >
-            {msg.content.startsWith('Forwarded from ')
-              ? msg.content.split('\n').slice(1).join('\n')
-              : msg.content}
+            {/* Text Content */}
+            {textContent && (
+              <div className="text-[rgba(220,235,255,0.9)] whitespace-pre-wrap break-words cursor-pointer">
+                {msg.content.startsWith('Forwarded from ')
+                  ? msg.content.split('\n').slice(1).join('\n')
+                  : textContent}
+              </div>
+            )}
+            
+            {/* File Attachments */}
+            {fileAttachments.length > 0 && (
+              <div className="mt-2">
+                <FilePreview files={fileAttachments} isOwnMessage={isOwnMessage} />
+              </div>
+            )}
           </div>
 
           {/* Reactions */}
