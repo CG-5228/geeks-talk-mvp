@@ -24,6 +24,7 @@ export default function VoiceIntegration({ groupId, onSpeakingChange, onUserSpea
   const [permissionGranted, setPermissionGranted] = useState<boolean | null>(null);
   const [isConnecting, setIsConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isExiting, setIsExiting] = useState(false);
 
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -47,6 +48,11 @@ export default function VoiceIntegration({ groupId, onSpeakingChange, onUserSpea
   }, []);
 
   const requestMicrophonePermission = async () => {
+    // Don't request microphone if user is exiting
+    if (isExiting) {
+      return false;
+    }
+    
     try {
       setError(null);
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -301,12 +307,34 @@ export default function VoiceIntegration({ groupId, onSpeakingChange, onUserSpea
     };
   }, [pushToTalk, isPushToTalkActive, isConnected]);
 
-  // Auto-connect when component mounts
+  // Auto-connect when component mounts (but not if user is exiting)
   useEffect(() => {
-    if (session?.user?.id && !isConnected && !isConnecting) {
+    if (session?.user?.id && !isConnected && !isConnecting && !isExiting) {
       connectToVoice();
     }
-  }, [session?.user?.id]);
+  }, [session?.user?.id, isExiting]);
+
+  // Cleanup when user is exiting
+  useEffect(() => {
+    if (isExiting) {
+      // Stop any ongoing microphone requests
+      if (mediaStreamRef.current) {
+        mediaStreamRef.current.getTracks().forEach(track => track.stop());
+        mediaStreamRef.current = null;
+      }
+      if (audioContextRef.current) {
+        audioContextRef.current.close();
+        audioContextRef.current = null;
+      }
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
+      }
+      setIsConnected(false);
+      setIsConnecting(false);
+      setError(null);
+    }
+  }, [isExiting]);
 
   if (error) {
     return (
@@ -325,7 +353,10 @@ export default function VoiceIntegration({ groupId, onSpeakingChange, onUserSpea
           </button>
           {onLeaveGroup && (
             <button
-              onClick={onLeaveGroup}
+              onClick={() => {
+                setIsExiting(true);
+                onLeaveGroup();
+              }}
               className="px-3 py-1 text-xs bg-orange-500/20 text-orange-400 rounded hover:bg-orange-500/30 transition-colors"
             >
               Exit Room
@@ -362,7 +393,10 @@ export default function VoiceIntegration({ groupId, onSpeakingChange, onUserSpea
           </button>
           {onLeaveGroup && (
             <button
-              onClick={onLeaveGroup}
+              onClick={() => {
+                setIsExiting(true);
+                onLeaveGroup();
+              }}
               className="px-3 py-1 text-xs bg-orange-500/20 text-orange-400 rounded hover:bg-orange-500/30 transition-colors"
             >
               Exit Room

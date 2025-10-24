@@ -104,6 +104,8 @@ export default function GroupRoom({ groupId, onLeave }: GroupRoomProps) {
       onLeave();
     } catch (error) {
       console.error('Error leaving group:', error);
+      // Still call onLeave even if API fails
+      onLeave();
     }
   };
 
