@@ -4,6 +4,12 @@ import { db } from '@/lib/db';
 // Public endpoint: returns current online users count
 export async function GET() {
   try {
+    // Check if DATABASE_URL is available (skip during build)
+    if (!process.env.DATABASE_URL) {
+      console.log('🌐 Online API: No DATABASE_URL, returning 0 (build time)');
+      return NextResponse.json({ online: 0 }, { headers: { 'Cache-Control': 'no-store' } });
+    }
+
     // Consider a user online if they've pinged within the last 30 seconds
     const threshold = new Date(Date.now() - 30 * 1000);
     const onlineUsers = await db.user.count({
