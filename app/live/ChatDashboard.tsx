@@ -144,7 +144,7 @@ export default function ChatDashboard() {
     }
   };
 
-  const handleSendMessage = async (text: string, replyToId?: string) => {
+  const handleSendMessage = async (text: string, replyToId?: string, files?: Array<{id: string, name: string, type: string, url: string}>) => {
     if (viewMode === 'channel' && active) {
       // Find the message being replied to for optimistic UI
       let replyToData = null;
@@ -160,13 +160,20 @@ export default function ChatDashboard() {
         }
       }
 
+      // If files are attached, append file information to content
+      let messageContent = text;
+      if (files && files.length > 0) {
+        const fileList = files.map(file => `📎 ${file.name}`).join('\n');
+        messageContent = text ? `${text}\n\n${fileList}` : fileList;
+      }
+
       const optimistic: LiveMessage = {
         id: `tmp-${Math.random().toString(36).slice(2)}`,
         channelId: active.id,
         authorId: session?.user?.id || 'unknown',
         authorName: session?.user?.name || 'You',
         authorImage: session?.user?.image || null,
-        content: text,
+        content: messageContent,
         type: 'text',
         createdAt: new Date().toISOString(),
         replyToId: replyToId,
@@ -182,7 +189,7 @@ export default function ChatDashboard() {
             'Cookie': document.cookie // Ensure cookies are sent
           },
           credentials: 'include', // Include credentials
-          body: JSON.stringify({ channelId: active.id, content: text, replyToId })
+          body: JSON.stringify({ channelId: active.id, content: text, replyToId, files })
         });
 
         if (res.ok) {

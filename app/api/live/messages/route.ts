@@ -79,7 +79,7 @@ export async function GET(req: Request) {
   }
 }
 
-// POST /api/live/messages  { channelId, content }
+// POST /api/live/messages  { channelId, content, files? }
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -87,7 +87,8 @@ export async function POST(req: Request) {
   const channelId = body?.channelId;
   const content = (body?.content || '').toString();
   const replyToId = body?.replyToId;
-  if (!channelId || !content.trim()) return NextResponse.json({ error: 'channelId and content required' }, { status: 400 });
+  const files = body?.files || [];
+  if (!channelId || (!content.trim() && files.length === 0)) return NextResponse.json({ error: 'channelId and content or files required' }, { status: 400 });
 
   try {
     let roomId = channelId;
@@ -134,8 +135,15 @@ export async function POST(req: Request) {
       }
     }
 
+    // If files are attached, append file information to content
+    let messageContent = content;
+    if (files && files.length > 0) {
+      const fileList = files.map((file: any) => `📎 ${file.name}`).join('\n');
+      messageContent = content ? `${content}\n\n${fileList}` : fileList;
+    }
+
     const created = await db.message.create({
-      data: { roomId, authorId: session.user.id, content, replyToId },
+      data: { roomId, authorId: session.user.id, content: messageContent, replyToId },
       include: { author: { select: { id: true, name: true, image: true } } },
     });
 

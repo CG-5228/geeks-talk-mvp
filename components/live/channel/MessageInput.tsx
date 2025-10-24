@@ -10,7 +10,7 @@ const Picker = dynamic(() => import('@emoji-mart/react'), { ssr: false }) as any
 const CalculatorModal = dynamic(() => import('@/components/live/calculator/Calculator'), { ssr: false });
 
 export interface MessageInputProps {
-  onSendMessage: (text: string, replyToId?: string) => void;
+  onSendMessage: (text: string, replyToId?: string, files?: Array<{id: string, name: string, type: string, url: string}>) => void;
   maxChars?: number;
   disabled?: boolean;
   channelId?: string;
@@ -60,7 +60,7 @@ export default function MessageInput({ onSendMessage, maxChars = 500, disabled, 
   const send = () => {
     const t = text.trim();
     if (!t && uploadedFiles.length === 0) return;
-    onSendMessage(t, replyContext?.message.id);
+    onSendMessage(t, replyContext?.message.id, uploadedFiles);
     setText("");
     setUploadedFiles([]);
     // Clear reply context after sending
