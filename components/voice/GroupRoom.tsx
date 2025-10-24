@@ -42,6 +42,18 @@ export default function GroupRoom({ groupId, onLeave }: GroupRoomProps) {
     return () => clearInterval(interval);
   }, [groupId]);
 
+  // Add keyboard shortcut for emergency exit (Escape key)
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        handleLeave();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
   // Close dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -178,6 +190,7 @@ export default function GroupRoom({ groupId, onLeave }: GroupRoomProps) {
             <button
               onClick={onLeave}
               className="p-2 rounded-lg hover:bg-white/10 transition-colors"
+              title="Exit Voice Room (or press Escape)"
             >
               <ArrowLeft className="w-5 h-5 text-foreground" />
             </button>
@@ -188,6 +201,15 @@ export default function GroupRoom({ groupId, onLeave }: GroupRoomProps) {
               </p>
             </div>
           </div>
+          
+          {/* Emergency Exit Button */}
+          <button
+            onClick={onLeave}
+            className="px-4 py-2 text-sm bg-orange-500/20 text-orange-400 border border-orange-500/30 rounded-lg hover:bg-orange-500/30 transition-colors"
+            title="Exit Voice Room"
+          >
+            Exit Room
+          </button>
           
           <div className="flex items-center gap-2">
             <VoiceIntegration 

@@ -78,9 +78,9 @@ export default function VoiceIntegration({ groupId, onSpeakingChange, onUserSpea
 
       showNotification({
         title: 'Microphone Access Denied',
-        message: 'Please allow microphone access to use voice chat features.',
+        message: 'Please allow microphone access to use voice chat features. You can exit the room using the back arrow, "Exit Room" button, or press Escape.',
         type: 'error',
-        duration: 6000,
+        duration: 8000,
       });
 
       return false;
@@ -316,12 +316,22 @@ export default function VoiceIntegration({ groupId, onSpeakingChange, onUserSpea
           <p className="text-sm font-medium text-red-400">Voice Chat Error</p>
           <p className="text-xs text-red-300">{error}</p>
         </div>
-        <button
-          onClick={connectToVoice}
-          className="px-3 py-1 text-xs bg-red-500/20 text-red-400 rounded hover:bg-red-500/30 transition-colors"
-        >
-          Retry
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={connectToVoice}
+            className="px-3 py-1 text-xs bg-red-500/20 text-red-400 rounded hover:bg-red-500/30 transition-colors"
+          >
+            Retry
+          </button>
+          {onLeaveGroup && (
+            <button
+              onClick={onLeaveGroup}
+              className="px-3 py-1 text-xs bg-orange-500/20 text-orange-400 rounded hover:bg-orange-500/30 transition-colors"
+            >
+              Exit Room
+            </button>
+          )}
+        </div>
       </div>
     );
   }
@@ -343,12 +353,22 @@ export default function VoiceIntegration({ groupId, onSpeakingChange, onUserSpea
           <p className="text-sm font-medium text-gray-400">Voice Chat Disconnected</p>
           <p className="text-xs text-gray-300">Click to connect and start talking</p>
         </div>
-        <button
-          onClick={connectToVoice}
-          className="px-3 py-1 text-xs bg-primary/20 text-primary rounded hover:bg-primary/30 transition-colors"
-        >
-          Connect
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={connectToVoice}
+            className="px-3 py-1 text-xs bg-primary/20 text-primary rounded hover:bg-primary/30 transition-colors"
+          >
+            Connect
+          </button>
+          {onLeaveGroup && (
+            <button
+              onClick={onLeaveGroup}
+              className="px-3 py-1 text-xs bg-orange-500/20 text-orange-400 rounded hover:bg-orange-500/30 transition-colors"
+            >
+              Exit Room
+            </button>
+          )}
+        </div>
       </div>
     );
   }
