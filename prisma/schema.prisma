@@ -66,6 +66,7 @@ model User {
   voiceGroupMembers VoiceGroupMember[]
   voteKickPolls     VoteKickPoll[]     @relation("VoteKickTarget")
   rooms             Room[]             @relation("RoomUsers")
+  channelFilesUploaded ChannelFile[]
 }
 
 model Subject {
@@ -111,6 +112,7 @@ model Room {
   thread       Thread?      @relation(fields: [threadId], references: [id])
   voiceGroups  VoiceGroup[]
   users        User[]       @relation("RoomUsers")
+  channelFiles ChannelFile[]
 }
 
 model Message {
@@ -410,6 +412,7 @@ model UserLike {
   id        String   @id @default(cuid())
   userId    String
   likedBy   String
+  likeCount Int      @default(1)
   createdAt DateTime @default(now())
   liker     User     @relation("LikesGiven", fields: [likedBy], references: [id], onDelete: Cascade)
   user      User     @relation("LikesReceived", fields: [userId], references: [id], onDelete: Cascade)
@@ -582,4 +585,19 @@ enum BugSeverity {
   MEDIUM
   HIGH
   CRITICAL
+}
+
+model ChannelFile {
+  id          String   @id @default(cuid())
+  channelId   String
+  fileName    String
+  fileType    String
+  fileSize    Int
+  s3Key       String
+  uploaderId  String
+  createdAt   DateTime @default(now())
+  channel     Room     @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  uploader    User     @relation(fields: [uploaderId], references: [id])
+  @@index([channelId])
+  @@index([uploaderId])
 }

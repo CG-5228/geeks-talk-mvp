@@ -25,7 +25,7 @@ export async function GET(req: Request) {
   
   const where = channelId ? { channelId } : {};
   
-  const [files, total] = await Promise.all([
+  const [voiceFiles, channelFiles, voiceTotal, channelTotal] = await Promise.all([
     db.voiceGroupFile.findMany({
       where,
       include: {
@@ -56,8 +56,51 @@ export async function GET(req: Request) {
       skip,
       take: limit
     }),
-    db.voiceGroupFile.count({ where })
+    db.channelFile.findMany({
+      where: channelId ? { channelId } : {},
+      include: {
+        uploader: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            username: true,
+            image: true
+          }
+        },
+        channel: {
+          select: {
+            id: true,
+            name: true,
+            slug: true
+          }
+        }
+      },
+      orderBy: { createdAt: 'desc' },
+      skip,
+      take: limit
+    }),
+    db.voiceGroupFile.count({ where }),
+    db.channelFile.count({ where: channelId ? { channelId } : {} })
   ]);
+
+  // Combine and format files
+  const files = [
+    ...voiceFiles.map(file => ({
+      ...file,
+      source: 'voice',
+      uploadedBy: file.uploader,
+      channel: file.group?.channel
+    })),
+    ...channelFiles.map(file => ({
+      ...file,
+      source: 'channel',
+      uploadedBy: file.uploader,
+      channel: file.channel
+    }))
+  ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+  const total = voiceTotal + channelTotal;
   
   return NextResponse.json({
     files,
@@ -86,10 +129,18 @@ export async function DELETE(req: Request) {
     return NextResponse.json({ error: 'File ID is required' }, { status: 400 });
   }
   
-  // Get file record
-  const file = await db.voiceGroupFile.findUnique({
+  // Try to find the file in both voice and channel file tables
+  let file: any = await db.voiceGroupFile.findUnique({
     where: { id: fileId }
   });
+  
+  let isVoiceFile = true;
+  if (!file) {
+    file = await db.channelFile.findUnique({
+      where: { id: fileId }
+    });
+    isVoiceFile = false;
+  }
   
   if (!file) {
     return NextResponse.json({ error: 'File not found' }, { status: 404 });
@@ -104,9 +155,15 @@ export async function DELETE(req: Request) {
   }
   
   // Delete from database
-  await db.voiceGroupFile.delete({
-    where: { id: fileId }
-  });
+  if (isVoiceFile) {
+    await db.voiceGroupFile.delete({
+      where: { id: fileId }
+    });
+  } else {
+    await db.channelFile.delete({
+      where: { id: fileId }
+    });
+  }
   
   return NextResponse.json({ message: 'File deleted successfully' });
 }

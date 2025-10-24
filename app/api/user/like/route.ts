@@ -22,6 +22,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Cannot like yourself' }, { status: 400 });
     }
 
+    // Get hourly like limit from environment
+    const maxLikesPerHour = parseInt(process.env.MAX_LIKES_PER_USER_PER_HOUR || '3');
+    
     // Check if like already exists
     const existingLike = await db.userLike.findUnique({
       where: {
@@ -34,32 +37,42 @@ export async function POST(req: NextRequest) {
 
     let isLiked: boolean;
     let likesCount: number;
+    let canLike: boolean = true;
+    let remainingLikes: number = 0;
 
     if (existingLike) {
-      // Unlike: Remove the like
-      await db.userLike.delete({
+      // Check if we can add more likes (within hourly limit)
+      const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+      const recentLikes = await db.userLike.findMany({
         where: {
-          id: existingLike.id,
-        },
-      });
-
-      // Decrement likes count
-      await db.user.update({
-        where: { id: userId },
-        data: {
-          likesCount: {
-            decrement: 1,
+          likedBy: session.user.id,
+          userId: userId,
+          createdAt: {
+            gte: oneHourAgo,
           },
         },
       });
 
-      isLiked = false;
-    } else {
-      // Like: Create new like
-      await db.userLike.create({
+      const totalRecentLikes = recentLikes.reduce((sum, like) => sum + like.likeCount, 0);
+      
+      if (totalRecentLikes >= maxLikesPerHour) {
+        return NextResponse.json({ 
+          error: `You can only like this user ${maxLikesPerHour} times per hour. Try again later.`,
+          canLike: false,
+          remainingLikes: 0,
+          timeUntilNextLike: '1 hour'
+        }, { status: 429 });
+      }
+
+      // Increment like count
+      await db.userLike.update({
+        where: {
+          id: existingLike.id,
+        },
         data: {
-          userId: userId,
-          likedBy: session.user.id,
+          likeCount: {
+            increment: 1,
+          },
         },
       });
 
@@ -74,6 +87,29 @@ export async function POST(req: NextRequest) {
       });
 
       isLiked = true;
+      remainingLikes = maxLikesPerHour - (totalRecentLikes + 1);
+    } else {
+      // Create new like
+      await db.userLike.create({
+        data: {
+          userId: userId,
+          likedBy: session.user.id,
+          likeCount: 1,
+        },
+      });
+
+      // Increment likes count
+      await db.user.update({
+        where: { id: userId },
+        data: {
+          likesCount: {
+            increment: 1,
+          },
+        },
+      });
+
+      isLiked = true;
+      remainingLikes = maxLikesPerHour - 1;
     }
 
     // Get updated likes count
@@ -87,6 +123,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       isLiked,
       likesCount,
+      canLike,
+      remainingLikes,
     });
   } catch (error) {
     console.error('Error toggling user like:', error);
@@ -112,6 +150,24 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'User ID is required' }, { status: 400 });
     }
 
+    const maxLikesPerHour = parseInt(process.env.MAX_LIKES_PER_USER_PER_HOUR || '3');
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+    
+    // Get recent likes given to this user
+    const recentLikes = await db.userLike.findMany({
+      where: {
+        likedBy: session.user.id,
+        userId: userId,
+        createdAt: {
+          gte: oneHourAgo,
+        },
+      },
+    });
+
+    const totalRecentLikes = recentLikes.reduce((sum, like) => sum + like.likeCount, 0);
+    const canLike = totalRecentLikes < maxLikesPerHour;
+    const remainingLikes = Math.max(0, maxLikesPerHour - totalRecentLikes);
+
     const like = await db.userLike.findUnique({
       where: {
         userId_likedBy: {
@@ -129,6 +185,9 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       isLiked: !!like,
       likesCount: user?.likesCount || 0,
+      canLike,
+      remainingLikes,
+      likesGivenInLastHour: totalRecentLikes,
     });
   } catch (error) {
     console.error('Error checking user like:', error);

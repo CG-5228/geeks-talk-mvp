@@ -30,6 +30,7 @@ interface FileRecord {
   };
   s3Key: string;
   s3Url: string;
+  source: 'voice' | 'channel';
 }
 
 interface FileManagerProps {
@@ -201,6 +202,7 @@ export default function FileManager({ className = '' }: FileManagerProps) {
             <tr className="border-b border-white/20">
               <th className="text-left py-3 px-4 text-white/70 font-medium">File</th>
               <th className="text-left py-3 px-4 text-white/70 font-medium">Size</th>
+              <th className="text-left py-3 px-4 text-white/70 font-medium">Source</th>
               <th className="text-left py-3 px-4 text-white/70 font-medium">Channel</th>
               <th className="text-left py-3 px-4 text-white/70 font-medium">Uploaded By</th>
               <th className="text-left py-3 px-4 text-white/70 font-medium">Date</th>
@@ -221,6 +223,15 @@ export default function FileManager({ className = '' }: FileManagerProps) {
                 </td>
                 <td className="py-4 px-4">
                   <span className="text-white">{formatFileSize(file.fileSize)}</span>
+                </td>
+                <td className="py-4 px-4">
+                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                    file.source === 'voice' 
+                      ? 'bg-blue-500/20 text-blue-400' 
+                      : 'bg-green-500/20 text-green-400'
+                  }`}>
+                    {file.source === 'voice' ? 'Voice Chat' : 'Text Channel'}
+                  </span>
                 </td>
                 <td className="py-4 px-4">
                   <div className="flex items-center gap-2">
