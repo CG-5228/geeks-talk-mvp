@@ -19,6 +19,10 @@ export const authOptions: NextAuthOptions = {
   ...(process.env.NODE_ENV === 'production' && {
     url: process.env.NEXTAUTH_URL || 'https://geekstalk.org',
   }),
+  // For development, ensure localhost is properly configured
+  ...(process.env.NODE_ENV === 'development' && {
+    url: process.env.NEXTAUTH_URL || 'http://localhost:3000',
+  }),
   providers: [
     GoogleProvider({
       clientId: process.env.GOOGLE_CLIENT_ID as string,
