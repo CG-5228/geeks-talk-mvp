@@ -227,7 +227,8 @@ export const authOptions: NextAuthOptions = {
       console.log('🔍 Session callback - token data:', {
         tokenId: (token as any).id,
         tokenEmail: token.email,
-        tokenName: token.name
+        tokenName: token.name,
+        tokenImage: (token as any).image
       });
       if (session.user) {
         (session.user as any).id = (token as any).id;
