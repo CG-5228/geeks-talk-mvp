@@ -506,27 +506,31 @@ export default function ChatDashboard() {
         <div className="min-w-0 min-h-0 flex flex-col p-2">
           {viewMode === 'channel' ? (
             <>
-              <Conversation
-                channel={active}
-                messages={messages}
-                onToggleDetails={() => setShowDetails((v) => !v)}
-                detailsOpen={showDetails}
-                onUnsendMessage={(messageId) => handleUnsendMessage(messageId, 'channel')}
-              />
+              <div className="flex flex-col flex-1 min-h-0">
+                <Conversation
+                  channel={active}
+                  messages={messages}
+                  onToggleDetails={() => setShowDetails((v) => !v)}
+                  detailsOpen={showDetails}
+                  onUnsendMessage={(messageId) => handleUnsendMessage(messageId, 'channel')}
+                />
+              </div>
               {active && (
                 <MessageInput onSendMessage={handleSendMessage} channelId={active.id} />
               )}
             </>
           ) : (
             <>
-              <DMConversation
-                conversation={activeDM}
-                messages={dmMessages}
-                onToggleDetails={() => setShowDetails((v) => !v)}
-                detailsOpen={showDetails}
-                onSendMessage={handleSendMessage}
-                onUnsendMessage={(messageId) => handleUnsendMessage(messageId, 'dm')}
-              />
+              <div className="flex flex-col flex-1 min-h-0">
+                <DMConversation
+                  conversation={activeDM}
+                  messages={dmMessages}
+                  onToggleDetails={() => setShowDetails((v) => !v)}
+                  detailsOpen={showDetails}
+                  onSendMessage={handleSendMessage}
+                  onUnsendMessage={(messageId) => handleUnsendMessage(messageId, 'dm')}
+                />
+              </div>
             </>
           )}
         </div>

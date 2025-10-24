@@ -14,7 +14,7 @@ export default function Conversation({ channel, messages, onToggleDetails, detai
     <section className="min-w-0 flex flex-col h-full bg-[color:var(--nav-bg)]/30 backdrop-blur-xl rounded-lg">
       <ChannelHeader channel={channel} onToggleDetails={onToggleDetails} detailsOpen={detailsOpen} />
       {channel ? (
-        <div className="relative flex-1 min-h-0">
+        <div className="relative flex flex-col flex-1 min-h-0">
           <MessageList messages={messages} channelId={channel.id} onUnsendMessage={onUnsendMessage} />
         </div>
       ) : (
