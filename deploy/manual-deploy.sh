@@ -38,6 +38,10 @@ ln -sfn /var/www/geekstalk/shared/.env /var/www/geekstalk/releases/$ts/.env
 cd /var/www/geekstalk/releases/$ts
 npx prisma migrate deploy
 
+# Ensure Redis is running (required for E2EE 1v1 random voice chat)
+sudo systemctl start redis-server || echo "Redis already running"
+redis-cli ping || echo "Redis connection test failed"
+
 # Atomically switch to new release
 ln -sfn /var/www/geekstalk/releases/$ts /var/www/geekstalk/current
 

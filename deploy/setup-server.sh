@@ -7,9 +7,16 @@ echo "🚀 Setting up GeeksTalk server deployment..."
 curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
 sudo apt-get install -y nodejs
 
-# Verify installation
+# Install Redis (required for E2EE 1v1 random voice chat)
+sudo apt-get update
+sudo apt-get install -y redis-server
+sudo systemctl start redis-server
+sudo systemctl enable redis-server
+
+# Verify installations
 node -v
 npm -v
+redis-cli ping
 
 # Create app directories
 sudo mkdir -p /var/www/geekstalk/{releases,shared,upload}
