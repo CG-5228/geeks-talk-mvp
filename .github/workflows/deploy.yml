@@ -1,0 +1,76 @@
+name: Build and Deploy (npm)
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma Client
+        run: npx prisma generate
+
+      - name: Build application
+        run: npm run build
+
+      - name: Prune devDependencies
+        run: npm prune --omit=dev
+
+      - name: Create deployment artifact
+        run: |
+          mkdir -p artifact
+          cp -r .next next.config.* package.json package-lock.json node_modules public prisma artifact/ 2>/dev/null || true
+          tar -C artifact -czf app.tgz .
+
+      - name: Upload artifact to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          source: "app.tgz"
+          target: "/var/www/geekstalk/upload/${{ github.sha }}.tgz"
+
+      - name: Deploy on server
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          script: |
+            set -euxo pipefail
+            ts=${{ github.sha }}
+
+            # Create release directory
+            mkdir -p /var/www/geekstalk/releases/$ts
+            tar -C /var/www/geekstalk/releases/$ts -xzf /var/www/geekstalk/upload/$ts.tgz
+
+            # Link environment file
+            ln -sfn /var/www/geekstalk/shared/.env /var/www/geekstalk/releases/$ts/.env
+
+            # Run database migrations
+            cd /var/www/geekstalk/releases/$ts
+            npx prisma migrate deploy
+
+            # Atomically switch to new release
+            ln -sfn /var/www/geekstalk/releases/$ts /var/www/geekstalk/current
+
+            # Restart service
+            sudo systemctl restart geekstalk
+
+            # Clean up old releases (keep last 5)
+            cd /var/www/geekstalk/releases
+            ls -1tr | head -n -5 | xargs -r rm -rf
+
+            # Clean up upload
+            rm -f /var/www/geekstalk/upload/$ts.tgz

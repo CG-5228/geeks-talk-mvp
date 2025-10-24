@@ -14,6 +14,7 @@ interface UserProfile {
   createdAt: string;
   onlineStatus: string;
   lastSeen: string | null;
+  bio: string | null;
 }
 
 export default function UserProfilePage() {
@@ -330,6 +331,16 @@ export default function UserProfilePage() {
                     </p>
                   </div>
                 </div>
+
+                {user.bio && (
+                  <div className="flex items-start gap-3">
+                    <User className="w-5 h-5 text-muted-foreground mt-0.5" />
+                    <div>
+                      <p className="text-sm text-muted-foreground">Bio</p>
+                      <p className="text-foreground whitespace-pre-wrap">{user.bio}</p>
+                    </div>
+                  </div>
+                )}
 
                 {user.lastSeen && (
                   <div className="flex items-center gap-3">

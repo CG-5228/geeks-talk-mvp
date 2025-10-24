@@ -35,6 +35,7 @@ export default async function ProfilePage() {
       image: true,
       createdAt: true,
       likesCount: true,
+      bio: true,
     }
   });
 
@@ -60,7 +61,7 @@ export default async function ProfilePage() {
   const profileData = {
     username: user.username || 'user',
     displayName: null, // Will come from DB when field is added
-    bio: null, // Will come from DB when field is added
+    bio: user.bio,
     email: user.email,
     image: user.image,
     createdAt: user.createdAt,

@@ -1,0 +1,19 @@
+[Unit]
+Description=GeeksTalk Next.js service
+After=network.target
+
+[Service]
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/var/www/geekstalk/current
+Environment=NODE_ENV=production
+EnvironmentFile=/var/www/geekstalk/shared/.env
+ExecStart=/usr/bin/npm run start --silent -- -p 3000
+Restart=always
+RestartSec=5
+
+RuntimeDirectory=geekstalk
+StateDirectory=geekstalk
+
+[Install]
+WantedBy=multi-user.target

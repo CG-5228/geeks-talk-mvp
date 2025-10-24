@@ -3,12 +3,15 @@ import { useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { Users, UserPlus, Clock } from 'lucide-react';
 import { useStyledDialog } from '../ui/StyledDialog';
+import GroupRoom from './GroupRoom';
 
 export default function RandomQueue() {
   const { data: session } = useSession();
   const [queueStatus, setQueueStatus] = useState<'idle' | 'waiting' | 'matched'>('idle');
   const [queueType, setQueueType] = useState<'1v1' | 'group'>('1v1');
   const [waitingTime, setWaitingTime] = useState(0);
+  const [matchData, setMatchData] = useState<any>(null);
+  const [currentGroupId, setCurrentGroupId] = useState<string | null>(null);
   const { showDialog, DialogComponent } = useStyledDialog();
 
   const handleJoinQueue = async (type: '1v1' | 'group') => {
@@ -31,7 +34,8 @@ export default function RandomQueue() {
         const data = await response.json();
         if (data.matched) {
           setQueueStatus('matched');
-          // TODO: Initialize LiveKit connection with data.liveKitToken
+          setMatchData(data);
+          setCurrentGroupId(data.groupId);
         } else {
           // Start waiting timer
           const timer = setInterval(() => {
@@ -42,6 +46,17 @@ export default function RandomQueue() {
           setTimeout(() => {
             clearInterval(timer);
             setQueueStatus('matched');
+            // For demo purposes, create mock match data
+            setMatchData({
+              groupId: 'demo-group-' + Date.now(),
+              roomName: 'demo-room-' + Date.now(),
+              liveKitToken: 'demo-token',
+              members: [
+                { user: { id: session.user.id, name: session.user.name, username: session.user.name || 'User', image: session.user.image } },
+                { user: { id: 'demo-user', name: 'Demo User', username: 'demo', image: null } }
+              ]
+            });
+            setCurrentGroupId('demo-group-' + Date.now());
           }, 10000);
         }
       } else {
@@ -74,6 +89,22 @@ export default function RandomQueue() {
     }
     setQueueStatus('idle');
     setWaitingTime(0);
+    setMatchData(null);
+    setCurrentGroupId(null);
+  };
+
+  const handleStartVoiceChat = () => {
+    if (currentGroupId) {
+      // The GroupRoom component will be rendered
+      console.log('Starting voice chat with group:', currentGroupId);
+    }
+  };
+
+  const handleLeaveGroup = () => {
+    setCurrentGroupId(null);
+    setMatchData(null);
+    setQueueStatus('idle');
+    setWaitingTime(0);
   };
 
   const formatTime = (seconds: number) => {
@@ -81,6 +112,16 @@ export default function RandomQueue() {
     const secs = seconds % 60;
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
+
+  // If user is in a voice group, show the GroupRoom component
+  if (currentGroupId) {
+    return (
+      <GroupRoom 
+        groupId={currentGroupId}
+        onLeave={handleLeaveGroup}
+      />
+    );
+  }
 
   return (
     <div className="max-w-2xl mx-auto space-y-8">
@@ -163,10 +204,7 @@ export default function RandomQueue() {
           </p>
           <div className="space-y-3">
             <button
-              onClick={() => {
-                // TODO: Navigate to voice room
-
-              }}
+              onClick={handleStartVoiceChat}
               className="w-full py-3 px-6 bg-primary text-primary-foreground rounded-lg font-medium hover:bg-primary/90 transition-colors"
             >
               Start Voice Chat

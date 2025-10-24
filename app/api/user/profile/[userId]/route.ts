@@ -29,6 +29,7 @@ export async function GET(
         createdAt: true,
         onlineStatus: true,
         lastSeen: true,
+        bio: true,
       },
     });
 
