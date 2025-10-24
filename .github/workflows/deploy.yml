@@ -39,7 +39,8 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_KEY }}
           source: "app.tgz"
-          target: "/var/www/geekstalk/upload/${{ github.sha }}.tgz"
+          target: "/var/www/geekstalk/upload/"
+          strip_components: 0
 
       - name: Deploy on server
         uses: appleboy/ssh-action@v1.2.0
@@ -53,7 +54,15 @@ jobs:
 
             # Create release directory
             mkdir -p /var/www/geekstalk/releases/$ts
-            tar -C /var/www/geekstalk/releases/$ts -xzf /var/www/geekstalk/upload/$ts.tgz
+            
+            # Extract the uploaded artifact
+            if [ -d "/var/www/geekstalk/upload/$ts.tgz" ]; then
+              # If it's a directory (SCP created a directory), extract from inside
+              tar -C /var/www/geekstalk/releases/$ts -xzf /var/www/geekstalk/upload/$ts.tgz/app.tgz
+            else
+              # If it's a file, extract directly
+              tar -C /var/www/geekstalk/releases/$ts -xzf /var/www/geekstalk/upload/$ts.tgz
+            fi
 
             # Link environment file
             ln -sfn /var/www/geekstalk/shared/.env /var/www/geekstalk/releases/$ts/.env
@@ -73,4 +82,4 @@ jobs:
             ls -1tr | head -n -5 | xargs -r rm -rf
 
             # Clean up upload
-            rm -f /var/www/geekstalk/upload/$ts.tgz
+            rm -rf /var/www/geekstalk/upload/$ts.tgz
