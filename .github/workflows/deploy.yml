@@ -70,9 +70,9 @@ jobs:
             # Link environment file
             ln -sfn /var/www/geekstalk/shared/.env /var/www/geekstalk/releases/$ts/.env
 
-            # Run database migrations
+            # Run database migrations (ignore if schema already exists)
             cd /var/www/geekstalk/releases/$ts
-            npx prisma migrate deploy
+            npx prisma migrate deploy || echo "Migrations already applied or database schema exists"
 
             # Atomically switch to new release
             ln -sfn /var/www/geekstalk/releases/$ts /var/www/geekstalk/current

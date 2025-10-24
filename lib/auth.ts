@@ -212,6 +212,14 @@ export const authOptions: NextAuthOptions = {
       }
       return session;
     },
+    async redirect({ url, baseUrl }) {
+      // If it's a relative URL, make it absolute
+      if (url.startsWith("/")) return `${baseUrl}${url}`;
+      // If it's the same origin, allow it
+      else if (new URL(url).origin === baseUrl) return url;
+      // Otherwise, redirect to the home page
+      return baseUrl;
+    },
   },
   pages: {
     signIn: '/signin',
