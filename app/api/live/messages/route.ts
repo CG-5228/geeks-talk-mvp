@@ -81,7 +81,9 @@ export async function GET(req: Request) {
           id: f.file.id,
           name: f.file.fileName,
           type: f.file.fileType,
-          url: `/api/live/channels/${m.roomId}/files/${f.file.id}`,
+          url: f.file.fileType.startsWith('image/') 
+            ? `/api/live/channels/${m.roomId}/files/${f.file.id}/view` // View URL for images
+            : `/api/live/channels/${m.roomId}/files/${f.file.id}`, // Download URL for other files
           size: f.file.fileSize,
           uploader: {
             id: f.file.uploader.id,

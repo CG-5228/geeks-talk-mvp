@@ -83,15 +83,15 @@ export default function FilePreview({ files, isOwnMessage = false }: FilePreview
         return (
           <div key={file.id} className="relative group">
             {isImage && !hasImageError ? (
-              // Image Preview
+              // Image Preview - Show actual image like Instagram/WhatsApp
               <div className="relative overflow-hidden rounded-lg">
                 <img
                   src={file.url}
-                    alt={file.name}
-                    className="max-w-xs max-h-64 object-cover rounded-lg cursor-pointer hover:opacity-90 transition-opacity"
-                    onError={() => handleImageError(file.id)}
-                    onClick={() => window.open(file.url, '_blank')}
-                  />
+                  alt={file.name}
+                  className="max-w-xs max-h-64 object-cover rounded-lg cursor-pointer hover:opacity-90 transition-opacity"
+                  onError={() => handleImageError(file.id)}
+                  onClick={() => window.open(file.url, '_blank')}
+                />
                 <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg flex items-center justify-center">
                   <Download className="w-6 h-6 text-white" />
                 </div>
