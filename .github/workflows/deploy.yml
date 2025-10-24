@@ -56,7 +56,10 @@ jobs:
             mkdir -p /var/www/geekstalk/releases/$ts
             
             # Extract the uploaded artifact
-            if [ -d "/var/www/geekstalk/upload/$ts.tgz" ]; then
+            if [ -f "/var/www/geekstalk/upload/app.tgz" ]; then
+              # If app.tgz exists directly, extract it
+              tar -C /var/www/geekstalk/releases/$ts -xzf /var/www/geekstalk/upload/app.tgz
+            elif [ -d "/var/www/geekstalk/upload/$ts.tgz" ]; then
               # If it's a directory (SCP created a directory), extract from inside
               tar -C /var/www/geekstalk/releases/$ts -xzf /var/www/geekstalk/upload/$ts.tgz/app.tgz
             else
@@ -82,4 +85,5 @@ jobs:
             ls -1tr | head -n -5 | xargs -r rm -rf
 
             # Clean up upload
+            rm -f /var/www/geekstalk/upload/app.tgz
             rm -rf /var/www/geekstalk/upload/$ts.tgz
