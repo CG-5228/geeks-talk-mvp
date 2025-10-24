@@ -45,6 +45,17 @@ export async function GET(req: Request) {
               }
             }
           }
+        },
+        files: {
+          include: {
+            file: {
+              include: {
+                uploader: {
+                  select: { id: true, name: true, image: true }
+                }
+              }
+            }
+          }
         }
       },
     });
@@ -66,6 +77,18 @@ export async function GET(req: Request) {
           authorName: m.replyTo.author?.name || 'User',
           authorImage: m.replyTo.author?.image || null,
         } : null,
+        files: m.files?.map(f => ({
+          id: f.file.id,
+          name: f.file.fileName,
+          type: f.file.fileType,
+          url: `/api/live/channels/${m.roomId}/files/${f.file.id}`,
+          size: f.file.fileSize,
+          uploader: {
+            id: f.file.uploader.id,
+            name: f.file.uploader.name || 'Unknown User',
+            image: f.file.uploader.image
+          }
+        })) || [],
       }))
       .reverse();
     return NextResponse.json({ messages, nextCursor });
@@ -143,8 +166,32 @@ export async function POST(req: Request) {
     }
 
     const created = await db.message.create({
-      data: { roomId, authorId: session.user.id, content: messageContent, replyToId },
-      include: { author: { select: { id: true, name: true, image: true } } },
+      data: { 
+        roomId, 
+        authorId: session.user.id, 
+        content: messageContent, 
+        replyToId,
+        // Create MessageFile records for each attached file
+        files: files && files.length > 0 ? {
+          create: files.map((file: any) => ({
+            fileId: file.id
+          }))
+        } : undefined
+      },
+      include: { 
+        author: { select: { id: true, name: true, image: true } },
+        files: {
+          include: {
+            file: {
+              include: {
+                uploader: {
+                  select: { id: true, name: true, image: true }
+                }
+              }
+            }
+          }
+        }
+      },
     });
 
     // Track message activity for analytics

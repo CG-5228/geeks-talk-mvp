@@ -29,8 +29,8 @@ const MessageItem = forwardRef<HTMLDivElement, { msg: LiveMessage; showDivider?:
       }
     };
 
-    // Parse file attachments from message content
-    const fileAttachments = parseFileAttachments(msg.content);
+    // Get file attachments from message data
+    const fileAttachments = msg.files || [];
     const textContent = msg.content.replace(/📎\s+.+/g, '').trim();
 
     return (

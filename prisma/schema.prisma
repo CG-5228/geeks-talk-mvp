@@ -131,6 +131,7 @@ model Message {
   replyTo           Message?  @relation("MessageReply", fields: [replyToId], references: [id])
   replies           Message[] @relation("MessageReply")
   room              Room      @relation(fields: [roomId], references: [id])
+  files             MessageFile[]
 }
 
 model VoiceEligibility {
@@ -598,6 +599,19 @@ model ChannelFile {
   createdAt   DateTime @default(now())
   channel     Room     @relation(fields: [channelId], references: [id], onDelete: Cascade)
   uploader    User     @relation(fields: [uploaderId], references: [id])
+  messageFiles MessageFile[]
   @@index([channelId])
   @@index([uploaderId])
+}
+
+model MessageFile {
+  id        String      @id @default(cuid())
+  messageId String
+  fileId    String
+  createdAt DateTime    @default(now())
+  message   Message     @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  file      ChannelFile @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  @@unique([messageId, fileId])
+  @@index([messageId])
+  @@index([fileId])
 }

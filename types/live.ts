@@ -30,6 +30,18 @@ export type LiveMessage = {
     authorName: string;
     authorImage?: string | null;
   } | null;
+  files?: {
+    id: string;
+    name: string;
+    type: string;
+    url: string;
+    size: number;
+    uploader: {
+      id: string;
+      name: string;
+      image: string | null;
+    };
+  }[];
 };
 
 export type FollowStatus = 'pending' | 'mutual' | 'blocked';

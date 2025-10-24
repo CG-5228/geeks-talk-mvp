@@ -7,6 +7,12 @@ interface FileAttachment {
   name: string;
   type: string;
   url: string;
+  size?: number;
+  uploader?: {
+    id: string;
+    name: string;
+    image: string | null;
+  };
 }
 
 interface FilePreviewProps {
@@ -53,15 +59,13 @@ export default function FilePreview({ files, isOwnMessage = false }: FilePreview
 
   const handleDownload = async (file: FileAttachment) => {
     try {
-      const response = await fetch(file.url);
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
+      // Use the file URL directly for download
       const a = document.createElement('a');
-      a.href = url;
+      a.href = file.url;
       a.download = file.name;
+      a.target = '_blank';
       document.body.appendChild(a);
       a.click();
-      window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
     } catch (error) {
       console.error('Error downloading file:', error);
