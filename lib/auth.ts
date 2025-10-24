@@ -15,6 +15,10 @@ if (process.env.NODE_ENV === 'development') {
 export const authOptions: NextAuthOptions = {
   secret: process.env.NEXTAUTH_SECRET,
   debug: process.env.NODE_ENV === 'development',
+  // Explicitly set the base URL for production
+  ...(process.env.NODE_ENV === 'production' && {
+    url: process.env.NEXTAUTH_URL || 'https://geekstalk.org',
+  }),
   providers: [
     GoogleProvider({
       clientId: process.env.GOOGLE_CLIENT_ID as string,
@@ -213,11 +217,20 @@ export const authOptions: NextAuthOptions = {
       return session;
     },
     async redirect({ url, baseUrl }) {
-      // If it's a relative URL, make it absolute
+      console.log('🔍 Redirect callback:', { url, baseUrl });
+      
+      // Force production domain for production environment
+      if (process.env.NODE_ENV === 'production') {
+        const productionBaseUrl = 'https://geekstalk.org';
+        if (url.startsWith("/")) return `${productionBaseUrl}${url}`;
+        if (url.includes('localhost')) return productionBaseUrl;
+        if (new URL(url).origin === productionBaseUrl) return url;
+        return productionBaseUrl;
+      }
+      
+      // Development fallback
       if (url.startsWith("/")) return `${baseUrl}${url}`;
-      // If it's the same origin, allow it
       else if (new URL(url).origin === baseUrl) return url;
-      // Otherwise, redirect to the home page
       return baseUrl;
     },
   },
