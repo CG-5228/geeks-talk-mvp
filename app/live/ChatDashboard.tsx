@@ -409,7 +409,7 @@ export default function ChatDashboard() {
   }
 
   return (
-    <div className="h-[calc(100vh-var(--header-h)-8px)] min-h-0 overflow-hidden">
+    <div className="h-[calc(100vh-var(--header-h)-8px)] min-h-0">
       <div className="grid h-full grid-cols-[72px_var(--sidebar,320px)_minmax(0,1fr)_auto] transition-[grid-template-columns] duration-300">
         {/* Left: Server Rail */}
         <div className="overflow-hidden hidden lg:block">
@@ -503,7 +503,7 @@ export default function ChatDashboard() {
         </div>
 
         {/* Center: MessageThread + Input */}
-        <div className="overflow-hidden min-w-0 min-h-0 flex flex-col p-2">
+        <div className="min-w-0 min-h-0 flex flex-col p-2">
           {viewMode === 'channel' ? (
             <>
               <Conversation
