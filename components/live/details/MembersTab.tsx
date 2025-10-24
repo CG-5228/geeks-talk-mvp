@@ -1,6 +1,6 @@
 "use client";
-import { useState, useEffect } from 'react';
-import { Search, ThumbsUp, Info, Users, Clock } from 'lucide-react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
+import { Search, ThumbsUp, Info, Users, Loader2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 
 interface Member {
@@ -31,7 +31,11 @@ export default function MembersTab({ channelId }: MembersTabProps) {
   const router = useRouter();
 
   useEffect(() => {
-    fetchMembers();
+    const debounceTimer = setTimeout(() => {
+      fetchMembers();
+    }, 300);
+
+    return () => clearTimeout(debounceTimer);
   }, [channelId, searchQuery]);
 
   const fetchMembers = async () => {
@@ -57,7 +61,7 @@ export default function MembersTab({ channelId }: MembersTabProps) {
     }
   };
 
-  const handleLike = async (memberId: string) => {
+  const handleLike = useCallback(async (memberId: string) => {
     if (likingUsers.has(memberId)) return;
     
     try {
@@ -74,7 +78,6 @@ export default function MembersTab({ channelId }: MembersTabProps) {
       const data = await response.json();
       
       if (response.ok) {
-        // Update the member in the list
         setMembers(prev => prev.map(member => 
           member.id === memberId 
             ? { 
@@ -86,9 +89,6 @@ export default function MembersTab({ channelId }: MembersTabProps) {
               }
             : member
         ));
-      } else {
-        console.error('Error liking user:', data.error);
-        // You could show a toast notification here
       }
     } catch (error) {
       console.error('Error liking user:', error);
@@ -99,15 +99,15 @@ export default function MembersTab({ channelId }: MembersTabProps) {
         return newSet;
       });
     }
-  };
+  }, [likingUsers]);
 
-  const handleViewProfile = (memberId: string) => {
+  const handleViewProfile = useCallback((memberId: string) => {
     router.push(`/user/${memberId}`);
-  };
+  }, [router]);
 
-  const getOnlineStatus = (member: Member) => {
+  const getOnlineStatus = useCallback((member: Member) => {
     if (member.onlineStatus === 'online') {
-      return { text: 'Online', color: 'text-green-400', dot: 'bg-green-400' };
+      return { text: 'Online', color: 'text-emerald-400', dot: 'bg-emerald-500', animate: 'animate-pulse' };
     }
     
     if (member.lastSeen) {
@@ -116,120 +116,135 @@ export default function MembersTab({ channelId }: MembersTabProps) {
       const diffMinutes = Math.floor((now.getTime() - lastSeen.getTime()) / (1000 * 60));
       
       if (diffMinutes < 5) {
-        return { text: 'Just now', color: 'text-green-400', dot: 'bg-green-400' };
+        return { text: 'Just now', color: 'text-emerald-400', dot: 'bg-emerald-500', animate: 'animate-pulse' };
       } else if (diffMinutes < 60) {
-        return { text: `${diffMinutes}m ago`, color: 'text-yellow-400', dot: 'bg-yellow-400' };
+        return { text: `${diffMinutes}m ago`, color: 'text-amber-400', dot: 'bg-amber-500', animate: '' };
       } else if (diffMinutes < 1440) {
         const hours = Math.floor(diffMinutes / 60);
-        return { text: `${hours}h ago`, color: 'text-yellow-400', dot: 'bg-yellow-400' };
+        return { text: `${hours}h ago`, color: 'text-amber-400', dot: 'bg-amber-500', animate: '' };
       }
     }
     
-    return { text: 'Offline', color: 'text-gray-400', dot: 'bg-gray-400' };
-  };
+    return { text: 'Offline', color: 'text-slate-500', dot: 'bg-slate-600', animate: '' };
+  }, []);
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-[rgba(220,235,255,0.7)]">Loading members...</div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-red-400">{error}</div>
-      </div>
-    );
-  }
+  const filteredAndSortedMembers = useMemo(() => {
+    return members.sort((a, b) => {
+      // Sort online users first
+      const aIsOnline = a.onlineStatus === 'online' ? 1 : 0;
+      const bIsOnline = b.onlineStatus === 'online' ? 1 : 0;
+      if (aIsOnline !== bIsOnline) return bIsOnline - aIsOnline;
+      
+      // Then by name
+      const aName = (a.name || a.username || '').toLowerCase();
+      const bName = (b.name || b.username || '').toLowerCase();
+      return aName.localeCompare(bName);
+    });
+  }, [members]);
 
   return (
-    <div className="h-full flex flex-col">
-      {/* Search */}
-      <div className="p-4 border-b border-[color:var(--divider)]/20">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-[rgba(220,235,255,0.5)]" />
+    <div className="h-full flex flex-col bg-gradient-to-b from-transparent via-white/[0.01] to-white/[0.02]">
+      {/* Search Bar */}
+      <div className="p-4 border-b border-white/5 flex-shrink-0">
+        <div className="relative group">
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-[rgba(220,235,255,0.4)] group-focus-within:text-blue-400 transition-colors" />
           <input
             type="text"
             placeholder="Search members..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 bg-[rgba(255,255,255,0.05)] border border-[color:var(--divider)]/20 rounded-lg text-[rgba(220,235,255,0.9)] placeholder-[rgba(220,235,255,0.5)] focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+            className="w-full pl-9 pr-4 py-2.5 bg-white/5 border border-white/10 rounded-lg text-[rgba(220,235,255,0.9)] placeholder-[rgba(220,235,255,0.4)] focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-transparent transition-all duration-200 text-sm"
           />
         </div>
       </div>
 
-      {/* Members List */}
+      {/* Members List or States */}
       <div className="flex-1 overflow-y-auto">
-        {members.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-64 text-[rgba(220,235,255,0.7)]">
-            <Users className="w-12 h-12 mb-4 opacity-50" />
-            <p>No members found</p>
+        {loading && (
+          <div className="flex flex-col items-center justify-center h-full gap-3">
+            <Loader2 className="w-8 h-8 text-blue-400 animate-spin" />
+            <p className="text-sm text-[rgba(220,235,255,0.5)]">Loading members...</p>
           </div>
-        ) : (
-          <div className="p-4 space-y-3">
-            {members.map((member) => {
+        )}
+
+        {error && (
+          <div className="m-4 p-4 bg-red-500/10 border border-red-500/20 rounded-lg">
+            <p className="text-sm text-red-400">{error}</p>
+          </div>
+        )}
+
+        {!loading && !error && filteredAndSortedMembers.length === 0 && (
+          <div className="flex flex-col items-center justify-center h-full gap-3 text-center px-4">
+            <Users className="w-12 h-12 text-[rgba(220,235,255,0.2)]" />
+            <p className="text-sm text-[rgba(220,235,255,0.5)]">
+              {searchQuery ? 'No members found' : 'No members in this channel'}
+            </p>
+          </div>
+        )}
+
+        {!loading && !error && filteredAndSortedMembers.length > 0 && (
+          <div className="p-3 space-y-2">
+            {filteredAndSortedMembers.map((member) => {
               const status = getOnlineStatus(member);
               const isLiking = likingUsers.has(member.id);
               
               return (
                 <div
                   key={member.id}
-                  className="flex items-center gap-3 p-3 rounded-lg hover:bg-[rgba(255,255,255,0.05)] transition-colors"
+                  className="flex items-center gap-3 p-3 rounded-lg hover:bg-white/5 transition-all duration-200 group"
                 >
-                  {/* Avatar */}
-                  <div className="relative">
+                  {/* Avatar with Status */}
+                  <div className="relative flex-shrink-0">
                     <img
                       src={member.image || '/default-avatar.png'}
                       alt={member.name || 'User'}
-                      className="w-10 h-10 rounded-full"
+                      className="w-10 h-10 rounded-full ring-2 ring-white/10 group-hover:ring-white/20 transition-all"
                     />
-                    <div className={`absolute -bottom-1 -right-1 w-3 h-3 rounded-full border-2 border-[color:var(--surface-1)] ${status.dot}`} />
+                    <div className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full ring-2 ring-[#13141a] ${status.dot} ${status.animate}`} />
                   </div>
 
                   {/* User Info */}
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <h4 className="font-medium text-[rgba(220,235,255,0.9)] truncate">
-                        {member.name || member.username || 'Unknown User'}
+                    <div className="flex items-baseline gap-2 mb-1">
+                      <h4 className="font-medium text-[rgba(220,235,255,0.9)] truncate text-sm">
+                        {member.name || member.username || 'Unknown'}
                       </h4>
-                      <span className="text-xs text-[rgba(220,235,255,0.5)]">
-                        {member.likesCount} likes
+                      <span className="text-xs font-semibold text-blue-400 flex-shrink-0">
+                        {member.likesCount}
                       </span>
                     </div>
-                    <div className="flex items-center gap-2 text-sm">
-                      <span className={status.color}>{status.text}</span>
+                    <div className="flex items-center gap-2 text-xs">
+                      <span className={`${status.color} font-medium`}>{status.text}</span>
                       {member.username && (
-                        <span className="text-[rgba(220,235,255,0.5)]">@{member.username}</span>
+                        <span className="text-[rgba(220,235,255,0.4)]">@{member.username}</span>
                       )}
                     </div>
                   </div>
 
                   {/* Actions */}
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1.5 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
                     {/* Like Button */}
                     <button
                       onClick={() => handleLike(member.id)}
                       disabled={!member.canLike || isLiking}
-                      className={`p-2 rounded-lg transition-colors ${
+                      className={`p-1.5 rounded-md transition-all duration-200 ${
                         member.canLike && !isLiking
-                          ? 'hover:bg-[rgba(255,255,255,0.1)] text-[rgba(220,235,255,0.7)] hover:text-white'
-                          : 'opacity-50 cursor-not-allowed text-[rgba(220,235,255,0.3)]'
+                          ? 'hover:bg-blue-500/20 text-[rgba(220,235,255,0.6)] hover:text-blue-400'
+                          : 'opacity-40 cursor-not-allowed text-[rgba(220,235,255,0.3)]'
                       }`}
                       title={
                         member.canLike 
-                          ? `Like (${member.remainingLikes} remaining)` 
+                          ? `Like (${member.remainingLikes} left)` 
                           : 'Like limit reached'
                       }
                     >
-                      <ThumbsUp className={`w-4 h-4 ${member.isLiked ? 'text-blue-400' : ''}`} />
+                      <ThumbsUp className={`w-4 h-4 ${member.isLiked ? 'fill-current text-blue-400' : ''}`} />
                     </button>
 
                     {/* Info Button */}
                     <button
                       onClick={() => handleViewProfile(member.id)}
-                      className="p-2 rounded-lg hover:bg-[rgba(255,255,255,0.1)] text-[rgba(220,235,255,0.7)] hover:text-white transition-colors"
+                      className="p-1.5 rounded-md hover:bg-white/10 text-[rgba(220,235,255,0.6)] hover:text-white transition-all duration-200"
                       title="View profile"
                     >
                       <Info className="w-4 h-4" />
@@ -242,10 +257,15 @@ export default function MembersTab({ channelId }: MembersTabProps) {
         )}
       </div>
 
-      {/* Footer */}
-      <div className="p-4 border-t border-[color:var(--divider)]/20 text-xs text-[rgba(220,235,255,0.5)]">
-        {members.length} member{members.length !== 1 ? 's' : ''}
-      </div>
+      {/* Footer Stats */}
+      {!loading && !error && filteredAndSortedMembers.length > 0 && (
+        <div className="p-3 border-t border-white/5 bg-white/[0.02] text-xs text-[rgba(220,235,255,0.4)] flex-shrink-0">
+          <div className="flex justify-between">
+            <span>{filteredAndSortedMembers.length} member{filteredAndSortedMembers.length !== 1 ? 's' : ''}</span>
+            <span>{filteredAndSortedMembers.filter(m => m.onlineStatus === 'online').length} online</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
