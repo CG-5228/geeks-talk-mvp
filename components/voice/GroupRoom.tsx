@@ -204,15 +204,6 @@ export default function GroupRoom({ groupId, onLeave }: GroupRoomProps) {
             </div>
           </div>
           
-          {/* Emergency Exit Button */}
-          <button
-            onClick={onLeave}
-            className="px-4 py-2 text-sm bg-orange-500/20 text-orange-400 border border-orange-500/30 rounded-lg hover:bg-orange-500/30 transition-colors"
-            title="Exit Voice Room"
-          >
-            Exit Room
-          </button>
-          
           <div className="flex items-center gap-2">
             <VoiceIntegration 
               groupId={groupId} 
