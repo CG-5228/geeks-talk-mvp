@@ -65,8 +65,29 @@ export default function ChatsSidebar({
     });
   };
 
-  // Organize channels by category
-  const mainChannels = channels.filter(c => c.category === 'General' || c.category === 'Computer General' || c.category === 'Programming' || c.category === 'Cybersecurity' || c.category === 'Mathematics');
+  // Define category order for consistent sorting
+  const CATEGORY_ORDER = ['General', 'Programming', 'Computer General', 'Mathematics', 'Cybersecurity'];
+
+  // Sort channels by category order, then by name
+  const sortChannelsByCategory = (channels: Channel[]) => {
+    return [...channels].sort((a, b) => {
+      const aIndex = CATEGORY_ORDER.indexOf(a.category);
+      const bIndex = CATEGORY_ORDER.indexOf(b.category);
+      
+      // If same category, sort by name
+      if (aIndex === bIndex) {
+        return a.name.localeCompare(b.name);
+      }
+      
+      // Sort by category order
+      return aIndex - bIndex;
+    });
+  };
+
+  // Organize channels by category with stable sorting
+  const mainChannels = sortChannelsByCategory(
+    channels.filter(c => CATEGORY_ORDER.includes(c.category))
+  );
   const userChannels = channels.filter(c => c.category === 'Private');
   
   // Filter channels based on search
@@ -82,7 +103,7 @@ export default function ChatsSidebar({
   };
 
   return (
-    <aside className={`h-full flex flex-col border-r border-border/20 bg-[color:var(--nav-bg)]/50 backdrop-blur-xl w-[var(--sidebar,320px)] transition-[width] duration-200 overflow-hidden`}>
+    <aside className={`h-full flex flex-col border-r border-border/20 bg-[color:var(--nav-bg)]/50 backdrop-blur-xl w-[var(--sidebar,320px)] transition-all duration-300 ease-in-out overflow-hidden`}>
           {/* Header */}
           <div className="h-12 flex items-center justify-between px-4 flex-shrink-0">
             {!collapsed && (
@@ -92,11 +113,11 @@ export default function ChatsSidebar({
             )}
             <button 
               onClick={toggle}
-              className={`size-8 rounded-md hover:bg-white/10 grid place-items-center transition-colors text-[rgba(220,235,255,0.75)] hover:text-white ${collapsed ? 'mx-auto' : ''}`}
+              className={`size-8 rounded-lg hover:bg-white/10 active:bg-white/15 grid place-items-center transition-all duration-150 text-[rgba(220,235,255,0.75)] hover:text-white ${collapsed ? 'mx-auto' : ''}`}
               aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
               title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
             >
-              <ChevronLeft className={`w-4 h-4 transition-transform duration-200 ${collapsed ? 'rotate-180' : ''}`} />
+              <ChevronLeft className={`w-4 h-4 transition-transform duration-300 ${collapsed ? 'rotate-180' : ''}`} />
             </button>
           </div>
 
@@ -110,7 +131,7 @@ export default function ChatsSidebar({
               placeholder="Search"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-3 py-1.5 bg-white/5 border border-border/20 rounded text-sm text-[rgba(236,245,255,0.95)] placeholder:text-[rgba(220,235,255,0.5)] focus:outline-none focus:ring-1 focus:ring-primary/50"
+              className="w-full pl-9 pr-3 py-2 bg-white/5 border border-border/20 rounded-lg text-sm text-[rgba(236,245,255,0.95)] placeholder:text-[rgba(220,235,255,0.5)] focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary/30 transition-all duration-150"
               aria-label="Search channels and users"
             />
           </div>
@@ -217,17 +238,17 @@ function CategorySection({
       {!collapsed ? (
         <button
           onClick={onToggle}
-          className="w-full flex items-center justify-between px-2 py-1 text-[13px] text-[rgba(220,235,255,0.65)] hover:text-[rgba(220,235,255,0.8)] transition-colors"
+          className="w-full flex items-center justify-between px-2 py-1.5 text-[13px] font-medium text-[rgba(220,235,255,0.65)] hover:text-[rgba(220,235,255,0.9)] hover:bg-white/5 rounded-md transition-all duration-150"
         >
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1.5">
             <ChevronDown 
-              className={`w-3 h-3 transition-transform duration-200 ${
+              className={`w-3.5 h-3.5 transition-transform duration-200 ${
                 expanded ? 'rotate-0' : '-rotate-90'
               }`} 
             />
-            <span className="uppercase tracking-wide">{title}</span>
+            <span className="uppercase tracking-wider">{title}</span>
           </div>
-          <span className="text-[rgba(220,235,255,0.4)]">{count}</span>
+          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-white/5 text-[rgba(220,235,255,0.5)]">{count}</span>
         </button>
       ) : (
         <div className="h-2" />
@@ -247,13 +268,15 @@ function Row({ channel, label, badge, active, onClick, collapsed, onDeleteChanne
   onDeleteChannel?: (channelId: string) => void;
 }) {
   return (
-    <div className={`group flex items-center gap-2 ${collapsed ? 'justify-center px-0' : 'px-2'} py-2 rounded hover:bg-white/5 transition-colors ${active ? 'bg-white/10' : ''}`}>
+    <div className={`group flex items-center gap-2 ${collapsed ? 'justify-center px-1 mx-1' : 'px-2'} py-2 rounded-md hover:bg-white/5 active:bg-white/8 transition-all duration-150 ${active ? 'bg-white/10 ring-1 ring-primary/20' : ''}`}>
       <button
         onClick={onClick}
-        className="flex-1 flex items-center gap-2 min-w-0"
+        className={`flex-1 flex items-center ${collapsed ? 'justify-center' : 'gap-2'} min-w-0`}
         title={collapsed ? label : undefined}
       >
-        <span className="text-[rgba(236,245,255,0.9)] text-sm truncate">{collapsed ? '#' : label}</span>
+        <span className={`text-[rgba(236,245,255,0.9)] text-sm ${collapsed ? 'w-full text-center' : 'truncate'}`}>
+          {collapsed ? '#' : label}
+        </span>
         {!collapsed && badge && badge > 0 && (
           <UnreadBadge count={badge} type="channel" />
         )}

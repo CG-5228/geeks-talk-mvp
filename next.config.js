@@ -13,6 +13,9 @@ const nextConfig = {
       { protocol: 'https', hostname: 'images.unsplash.com' },
     ],
   },
+  env: {
+    NEXT_PUBLIC_MESSAGE_MAX_LENGTH: process.env.MESSAGE_MAX_LENGTH,
+  },
 };
 
 module.exports = nextConfig;

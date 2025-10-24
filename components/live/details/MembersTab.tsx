@@ -2,6 +2,8 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Search, ThumbsUp, Info, Users, Loader2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+import LikeLimitModal from '@/components/ui/LikeLimitModal';
+import { useLikeLimitModal } from '@/hooks/useLikeLimitModal';
 
 interface Member {
   id: string;
@@ -29,6 +31,7 @@ export default function MembersTab({ channelId }: MembersTabProps) {
   const [error, setError] = useState<string | null>(null);
   const [likingUsers, setLikingUsers] = useState<Set<string>>(new Set());
   const router = useRouter();
+  const { modalState, showLikeLimit, hideLikeLimit } = useLikeLimitModal();
 
   useEffect(() => {
     const debounceTimer = setTimeout(() => {
@@ -89,9 +92,17 @@ export default function MembersTab({ channelId }: MembersTabProps) {
               }
             : member
         ));
+      } else if (response.status === 429) {
+        // Rate limit exceeded - show custom modal
+        const maxLikes = parseInt(process.env.NEXT_PUBLIC_MAX_LIKES_PER_USER_PER_HOUR || '4', 10);
+        showLikeLimit(maxLikes, '1 hour');
+      } else {
+        console.error('Error liking user:', data.error || 'Unknown error');
+        alert(data.error || 'Failed to like user. Please try again.');
       }
     } catch (error) {
       console.error('Error liking user:', error);
+      alert('Failed to like user. Please try again.');
     } finally {
       setLikingUsers(prev => {
         const newSet = new Set(prev);
@@ -266,6 +277,14 @@ export default function MembersTab({ channelId }: MembersTabProps) {
           </div>
         </div>
       )}
+
+      {/* Like Limit Modal */}
+      <LikeLimitModal
+        isOpen={modalState.isOpen}
+        onClose={hideLikeLimit}
+        maxLikes={modalState.maxLikes}
+        remainingTime={modalState.remainingTime}
+      />
     </div>
   );
 }

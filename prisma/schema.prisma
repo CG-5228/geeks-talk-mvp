@@ -67,6 +67,8 @@ model User {
   voteKickPolls     VoteKickPoll[]     @relation("VoteKickTarget")
   rooms             Room[]             @relation("RoomUsers")
   channelFilesUploaded ChannelFile[]
+  likeLogsGiven     UserLikeLog[]      @relation("LikeLogsGiven")
+  likeLogsReceived  UserLikeLog[]      @relation("LikeLogsReceived")
 }
 
 model Subject {
@@ -420,6 +422,20 @@ model UserLike {
 
   @@unique([userId, likedBy])
   @@index([userId])
+}
+
+// Log each like action to enforce time-window limits
+model UserLikeLog {
+  id        String   @id @default(cuid())
+  userId    String
+  likedBy   String
+  createdAt DateTime @default(now())
+  liker     User     @relation("LikeLogsGiven", fields: [likedBy], references: [id], onDelete: Cascade)
+  user      User     @relation("LikeLogsReceived", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([likedBy])
+  @@index([userId, likedBy, createdAt])
 }
 
 model Friendship {

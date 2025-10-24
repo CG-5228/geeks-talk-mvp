@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from 'react';
-import { Smile, Calculator, Plus, X, File, Image } from 'lucide-react';
+import { Smile, Calculator, Plus, X, File, Image, Send } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import data from '@emoji-mart/data';
 import MessageReplyContext from '../message/MessageReplyContext';
@@ -25,7 +25,9 @@ export interface MessageInputProps {
   };
 }
 
-export default function MessageInput({ onSendMessage, maxChars = 500, disabled, channelId, replyContext }: MessageInputProps) {
+export default function MessageInput({ onSendMessage, maxChars, disabled, channelId, replyContext }: MessageInputProps) {
+  // Read maxChars from environment variable, fallback to 500
+  const maxCharsLimit = maxChars || parseInt(process.env.NEXT_PUBLIC_MESSAGE_MAX_LENGTH || '500', 10);
   const [text, setText] = useState("");
   const taRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -34,7 +36,7 @@ export default function MessageInput({ onSendMessage, maxChars = 500, disabled, 
   const [uploadingFiles, setUploadingFiles] = useState<File[]>([]);
   const [uploadedFiles, setUploadedFiles] = useState<Array<{id: string, name: string, type: string, url: string}>>([]);
   const emojiRef = useRef<HTMLDivElement>(null);
-  const remaining = Math.max(0, maxChars - text.length);
+  const remaining = Math.max(0, maxCharsLimit - text.length);
   const canSend = !disabled && (text.trim().length > 0 || uploadedFiles.length > 0) && remaining >= 0;
 
   useEffect(() => {
@@ -60,6 +62,10 @@ export default function MessageInput({ onSendMessage, maxChars = 500, disabled, 
   const send = () => {
     const t = text.trim();
     if (!t && uploadedFiles.length === 0) return;
+    
+    console.log('🔍 MessageInput send() called with:', { text: t, uploadedFiles });
+    console.log('🔍 Uploaded files details:', uploadedFiles);
+    
     onSendMessage(t, replyContext?.message.id, uploadedFiles);
     setText("");
     setUploadedFiles([]);
@@ -123,7 +129,12 @@ export default function MessageInput({ onSendMessage, maxChars = 500, disabled, 
       });
 
       const results = await Promise.all(uploadPromises);
-      setUploadedFiles(prev => [...prev, ...results]);
+      console.log('🔍 File upload results:', results);
+      setUploadedFiles(prev => {
+        const newFiles = [...prev, ...results];
+        console.log('🔍 Updated uploadedFiles state:', newFiles);
+        return newFiles;
+      });
     } catch (error) {
       console.error('Error uploading files:', error);
       alert(`Failed to upload files: ${error instanceof Error ? error.message : 'Please try again.'}`);
@@ -175,8 +186,8 @@ export default function MessageInput({ onSendMessage, maxChars = 500, disabled, 
         />
       )}
       
-      <div className="relative overflow-visible rounded-2xl bg-white/5 ring-1 ring-border/20 backdrop-blur-md p-2">
-        <div className="flex items-end gap-2">
+      <div className="relative overflow-visible rounded-full bg-white/5 ring-1 ring-border/20 backdrop-blur-md p-2">
+        <div className="flex items-center gap-2">
           {/* Emoji toggle on far left */}
           <div className="relative" ref={emojiRef}>
             <button
@@ -261,13 +272,21 @@ export default function MessageInput({ onSendMessage, maxChars = 500, disabled, 
               </div>
             )}
           </div>
-          <button
-            onClick={send}
-            disabled={!canSend}
-            className={`ml-auto rounded-full px-4 py-2 text-sm font-medium transition ${canSend ? 'bg-[hsl(var(--primary))]/90 hover:bg-[hsl(var(--primary))] text-white' : 'bg-white/10 text-[rgba(220,235,255,0.6)] cursor-not-allowed'}`}
-          >
-            {`Send · ${remaining}`}
-          </button>
+          <div className="relative">
+            <button
+              onClick={send}
+              disabled={!canSend}
+              className={`ml-auto rounded-full p-2.5 transition ${canSend ? 'bg-[hsl(var(--primary))]/90 hover:bg-[hsl(var(--primary))] text-white' : 'bg-white/10 text-[rgba(220,235,255,0.6)] cursor-not-allowed'}`}
+              title="Send message"
+            >
+              <Send className="h-5 w-5" />
+            </button>
+            {remaining <= 50 && (
+              <div className="absolute -bottom-6 left-0 text-xs text-[rgba(220,235,255,0.6)]">
+                {remaining}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 

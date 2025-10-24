@@ -212,6 +212,21 @@ export async function POST(req: Request) {
       content: created.content,
       type: 'text' as const,
       createdAt: created.createdAt instanceof Date ? created.createdAt.toISOString() : created.createdAt,
+      // Include files immediately so clients can render previews without waiting for next poll
+      files: created.files?.map((f) => ({
+        id: f.file.id,
+        name: f.file.fileName,
+        type: f.file.fileType,
+        url: f.file.fileType.startsWith('image/')
+          ? `/api/live/channels/${created.roomId}/files/${f.file.id}/view`
+          : `/api/live/channels/${created.roomId}/files/${f.file.id}`,
+        size: f.file.fileSize,
+        uploader: {
+          id: f.file.uploader.id,
+          name: f.file.uploader.name || 'Unknown User',
+          image: f.file.uploader.image,
+        },
+      })) || [],
     };
     // Broadcast to listeners in the channel room
     emitToRoom(`channel:${msg.channelId}`, 'message:new', msg);

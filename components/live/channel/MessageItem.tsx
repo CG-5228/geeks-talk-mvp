@@ -117,7 +117,7 @@ const MessageItem = forwardRef<HTMLDivElement, { msg: LiveMessage; showDivider?:
             
             {/* File Attachments */}
             {fileAttachments.length > 0 && (
-              <div className="mt-2">
+              <div className={textContent ? 'mt-2' : ''}>
                 <FilePreview files={fileAttachments} isOwnMessage={isOwnMessage} />
               </div>
             )}

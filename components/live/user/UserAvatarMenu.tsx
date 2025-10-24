@@ -5,6 +5,8 @@ import { createPortal } from 'react-dom';
 import { User, ThumbsUp, Flag } from 'lucide-react';
 import UserSummaryCard from './UserSummaryCard';
 import ReportUserModal from '@/components/user/ReportUserModal';
+import LikeLimitModal from '@/components/ui/LikeLimitModal';
+import { useLikeLimitModal } from '@/hooks/useLikeLimitModal';
 
 interface UserAvatarMenuProps {
   user: {
@@ -26,6 +28,7 @@ export default function UserAvatarMenu({ user, isOpen, onClose, anchorRef }: Use
   const [isLiked, setIsLiked] = useState(false);
   const [likesCount, setLikesCount] = useState(user.likesCount || 0);
   const [mounted, setMounted] = useState(false);
+  const { modalState, showLikeLimit, hideLikeLimit } = useLikeLimitModal();
 
   useEffect(() => {
     setMounted(true);
@@ -46,13 +49,22 @@ export default function UserAvatarMenu({ user, isOpen, onClose, anchorRef }: Use
         body: JSON.stringify({ userId: user.id }),
       });
 
+      const data = await response.json();
+
       if (response.ok) {
-        const data = await response.json();
         setIsLiked(data.isLiked);
         setLikesCount(data.likesCount);
+      } else if (response.status === 429) {
+        // Rate limit exceeded - show custom modal
+        const maxLikes = parseInt(process.env.NEXT_PUBLIC_MAX_LIKES_PER_USER_PER_HOUR || '4', 10);
+        showLikeLimit(maxLikes, '1 hour');
+      } else {
+        console.error('Failed to toggle like:', data.error || 'Unknown error');
+        alert(data.error || 'Failed to like user. Please try again.');
       }
     } catch (error) {
       console.error('Failed to toggle like:', error);
+      alert('Failed to like user. Please try again.');
     }
   };
 
@@ -200,6 +212,14 @@ export default function UserAvatarMenu({ user, isOpen, onClose, anchorRef }: Use
           onClose={() => setShowReportModal(false)}
         />
       )}
+
+      {/* Like Limit Modal */}
+      <LikeLimitModal
+        isOpen={modalState.isOpen}
+        onClose={hideLikeLimit}
+        maxLikes={modalState.maxLikes}
+        remainingTime={modalState.remainingTime}
+      />
     </>
   );
 

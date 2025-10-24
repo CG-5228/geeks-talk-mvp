@@ -22,6 +22,8 @@ interface FilePreviewProps {
 
 export default function FilePreview({ files, isOwnMessage = false }: FilePreviewProps) {
   const [imageErrors, setImageErrors] = useState<Set<string>>(new Set());
+  
+  console.log('🔍 FilePreview rendered with files:', files);
 
   const getFileIcon = (fileType: string) => {
     if (fileType.startsWith('image/')) return <Image className="w-5 h-5" />;
@@ -104,30 +106,29 @@ export default function FilePreview({ files, isOwnMessage = false }: FilePreview
             ) : (
               // File Bubble
               <div 
-                className={`relative overflow-hidden rounded-xl cursor-pointer hover:scale-[1.02] transition-transform ${
+                className={`relative overflow-hidden rounded-xl cursor-pointer hover:scale-[1.02] transition-transform flex items-center ${
                   isOwnMessage 
                     ? 'bg-gradient-to-br from-blue-500 to-blue-600 text-white' 
                     : 'bg-gradient-to-br from-gray-100 to-gray-200 text-gray-800 dark:from-gray-700 dark:to-gray-800 dark:text-gray-200'
                 }`}
                 onClick={() => handleDownload(file)}
+                style={{ minHeight: '64px' }}
               >
-                <div className="p-4">
-                  <div className="flex items-start gap-3">
-                    <div className={`p-2 rounded-lg bg-white/20 ${isOwnMessage ? 'text-white' : 'text-gray-600'}`}>
-                      {getFileIcon(file.type)}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <h4 className="font-medium text-sm truncate mb-1">
-                        {file.name}
-                      </h4>
-                      <div className="flex items-center gap-2 text-xs opacity-80">
-                        <span>{file.type.split('/')[1]?.toUpperCase() || 'FILE'}</span>
-                        <span>•</span>
-                        <span>Click to download</span>
-                      </div>
-                    </div>
-                    <Download className="w-4 h-4 opacity-60" />
+                <div className="px-4 py-2 flex items-center gap-3 w-full">
+                  <div className={`p-2 rounded-lg bg-white/20 ${isOwnMessage ? 'text-white' : 'text-gray-600'}`}>
+                    {getFileIcon(file.type)}
                   </div>
+                  <div className="flex-1 min-w-0">
+                    <h4 className="font-medium text-sm truncate leading-[1.2]">
+                      {file.name}
+                    </h4>
+                    <div className="flex items-center gap-2 text-xs opacity-80 leading-none">
+                      <span>{file.type.split('/')[1]?.toUpperCase() || 'FILE'}</span>
+                      <span>•</span>
+                      <span>Click to download</span>
+                    </div>
+                  </div>
+                  <Download className="w-4 h-4 opacity-60" />
                 </div>
                 
                 {/* Decorative gradient overlay */}

@@ -80,7 +80,27 @@ export default function ChatDashboard() {
               // Check if messages have actually changed
               if (prev.length !== newMessages.length ||
                   prev[prev.length - 1]?.id !== newMessages[newMessages.length - 1]?.id) {
-                return newMessages;
+                console.log('🔍 Polling detected message changes');
+                console.log('🔍 Previous messages:', prev.length);
+                console.log('🔍 New messages from server:', newMessages.length);
+                
+                // Preserve optimistic messages (those with tmp- prefix) that haven't been confirmed yet
+                const optimisticMessages = prev.filter(msg => msg.id.startsWith('tmp-'));
+                const confirmedMessages = newMessages.filter(msg => !msg.id.startsWith('tmp-'));
+                
+                console.log('🔍 Optimistic messages to preserve:', optimisticMessages.length);
+                console.log('🔍 Confirmed messages from server:', confirmedMessages.length);
+                
+                // Merge confirmed messages with any remaining optimistic messages
+                const mergedMessages = [...confirmedMessages, ...optimisticMessages];
+                
+                // Sort by creation time to maintain proper order
+                const sortedMessages = mergedMessages.sort((a, b) => 
+                  new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+                );
+                
+                console.log('🔍 Final merged messages:', sortedMessages.length);
+                return sortedMessages;
               }
               return prev;
             });
@@ -145,6 +165,8 @@ export default function ChatDashboard() {
   };
 
   const handleSendMessage = async (text: string, replyToId?: string, files?: Array<{id: string, name: string, type: string, url: string}>) => {
+    console.log('🔍 handleSendMessage called with:', { text, replyToId, files });
+    
     if (viewMode === 'channel' && active) {
       // Find the message being replied to for optimistic UI
       let replyToData = null;
@@ -163,6 +185,7 @@ export default function ChatDashboard() {
       // If files are attached, append file information to content
       let messageContent = text;
       if (files && files.length > 0) {
+        console.log('🔍 Files detected, creating message content with files:', files);
         const fileList = files.map(file => `📎 ${file.name}`).join('\n');
         messageContent = text ? `${text}\n\n${fileList}` : fileList;
       }
@@ -178,8 +201,28 @@ export default function ChatDashboard() {
         createdAt: new Date().toISOString(),
         replyToId: replyToId,
         replyTo: replyToData,
+        files: files ? files.map(file => ({
+          id: file.id,
+          name: file.name,
+          type: file.type,
+          url: file.url,
+          size: 0, // We don't have size in the optimistic update
+          uploader: {
+            id: session?.user?.id || 'unknown',
+            name: session?.user?.name || 'You',
+            image: session?.user?.image || null,
+          }
+        })) : undefined,
       };
-      setMessages(prev => [...prev, optimistic]);
+      
+      console.log('🔍 Created optimistic message:', optimistic);
+      console.log('🔍 Optimistic message files:', optimistic.files);
+      
+      setMessages(prev => {
+        const newMessages = [...prev, optimistic];
+        console.log('🔍 Updated messages array, total messages:', newMessages.length);
+        return newMessages;
+      });
       try {
 
         const res = await fetch('/api/live/messages', {
@@ -195,11 +238,14 @@ export default function ChatDashboard() {
         if (res.ok) {
           const created = await res.json();
 
-          // Preserve reply context if API doesn't hydrate it
+          // Preserve reply context and optimistic files if API response lacks them
           const createdWithReply = {
             ...created,
             replyToId: created.replyToId ?? optimistic.replyToId,
             replyTo: created.replyTo ?? optimistic.replyTo,
+            files: (created.files && created.files.length > 0)
+              ? created.files
+              : (optimistic.files || undefined),
           } as LiveMessage;
           setMessages(prev => prev.map(m => m.id === optimistic.id ? createdWithReply : m));
         } else {

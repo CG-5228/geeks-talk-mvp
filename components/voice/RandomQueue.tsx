@@ -1,24 +1,51 @@
 "use client";
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useSession } from 'next-auth/react';
-import { Users, UserPlus, Clock } from 'lucide-react';
+import { Users, UserPlus, Clock, X, CheckCircle, ArrowLeft } from 'lucide-react';
 import { useStyledDialog } from '../ui/StyledDialog';
-import GroupRoom from './GroupRoom';
+import RandomChatOptions from './RandomChatOptions';
+import TopicSelection from './TopicSelection';
+import OneOnOneRoom from './OneOnOneRoom';
+
+type ViewState = 'chat-options' | 'topic-selection' | 'queue' | 'matched' | 'in-room';
 
 export default function RandomQueue() {
   const { data: session } = useSession();
-  const [queueStatus, setQueueStatus] = useState<'idle' | 'waiting' | 'matched'>('idle');
-  const [queueType, setQueueType] = useState<'1v1' | 'group'>('1v1');
+  const [view, setView] = useState<ViewState>('chat-options');
+  const [selectedTopics, setSelectedTopics] = useState<string[]>([]);
+  const [matchData, setMatchData] = useState<{
+    roomName: string;
+    peerId: string;
+    peerTopics: string[];
+  } | null>(null);
   const [waitingTime, setWaitingTime] = useState(0);
-  const [matchData, setMatchData] = useState<any>(null);
-  const [currentGroupId, setCurrentGroupId] = useState<string | null>(null);
+  const [pollInterval, setPollInterval] = useState<NodeJS.Timeout | null>(null);
   const { showDialog, DialogComponent } = useStyledDialog();
 
-  const handleJoinQueue = async (type: '1v1' | 'group') => {
+  // Handle chat type selection
+  const handleSelectOneOnOne = useCallback(() => {
+    setView('topic-selection');
+  }, []);
+
+  const handleSelectGroupChat = useCallback(() => {
+    // For now, show a message that group chat is coming soon
+    showDialog({
+      title: 'Group Chat Coming Soon',
+      message: 'Group chat functionality is currently under development. Please try one-on-one chat for now.',
+      type: 'info'
+    });
+  }, [showDialog]);
+
+  const handleBackToOptions = useCallback(() => {
+    setView('chat-options');
+  }, []);
+
+  // Start matching with selected topics
+  const handleStartMatching = useCallback(async (topics: string[]) => {
     if (!session?.user?.id) return;
 
-    setQueueType(type);
-    setQueueStatus('waiting');
+    setSelectedTopics(topics);
+    setView('queue');
     setWaitingTime(0);
 
     try {
@@ -27,37 +54,21 @@ export default function RandomQueue() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ type }),
+        body: JSON.stringify({ topics }),
       });
 
       if (response.ok) {
         const data = await response.json();
         if (data.matched) {
-          setQueueStatus('matched');
-          setMatchData(data);
-          setCurrentGroupId(data.groupId);
+          setMatchData({
+            roomName: data.roomName,
+            peerId: data.peerId,
+            peerTopics: data.peerTopics,
+          });
+          setView('matched');
         } else {
-          // Start waiting timer
-          const timer = setInterval(() => {
-            setWaitingTime(prev => prev + 1);
-          }, 1000);
-
-          // Simulate matching after 10 seconds for demo
-          setTimeout(() => {
-            clearInterval(timer);
-            setQueueStatus('matched');
-            // For demo purposes, create mock match data
-            setMatchData({
-              groupId: 'demo-group-' + Date.now(),
-              roomName: 'demo-room-' + Date.now(),
-              liveKitToken: 'demo-token',
-              members: [
-                { user: { id: session.user.id, name: session.user.name, username: session.user.name || 'User', image: session.user.image } },
-                { user: { id: 'demo-user', name: 'Demo User', username: 'demo', image: null } }
-              ]
-            });
-            setCurrentGroupId('demo-group-' + Date.now());
-          }, 10000);
+          // Start polling for match
+          startPolling();
         }
       } else {
         const error = await response.json();
@@ -66,7 +77,7 @@ export default function RandomQueue() {
           message: error.error || 'Failed to join queue',
           type: 'error'
         });
-        setQueueStatus('idle');
+        setView('chat-options');
       }
     } catch (error) {
       console.error('Error joining queue:', error);
@@ -75,11 +86,38 @@ export default function RandomQueue() {
         message: 'Failed to join queue. Please check your connection and try again.',
         type: 'error'
       });
-      setQueueStatus('idle');
+      setView('chat-options');
     }
-  };
+  }, [session?.user?.id, showDialog]);
 
-  const handleLeaveQueue = async () => {
+  // Start polling for match
+  const startPolling = useCallback(() => {
+    const interval = setInterval(async () => {
+      try {
+        const response = await fetch('/api/voice/random/queue/status');
+        if (response.ok) {
+          const data = await response.json();
+          if (data.matched) {
+            setMatchData({
+              roomName: data.roomName,
+              peerId: data.peerId,
+              peerTopics: data.peerTopics,
+            });
+            setView('matched');
+            clearInterval(interval);
+            setPollInterval(null);
+          }
+        }
+      } catch (error) {
+        console.error('Error polling for match:', error);
+      }
+    }, 2000); // Poll every 2 seconds
+
+    setPollInterval(interval);
+  }, []);
+
+  // Leave queue
+  const handleLeaveQueue = useCallback(async () => {
     try {
       await fetch('/api/voice/random/queue', {
         method: 'DELETE',
@@ -87,96 +125,105 @@ export default function RandomQueue() {
     } catch (error) {
       console.error('Error leaving queue:', error);
     }
-    setQueueStatus('idle');
-    setWaitingTime(0);
-    setMatchData(null);
-    setCurrentGroupId(null);
-  };
 
-  const handleStartVoiceChat = () => {
-    if (currentGroupId) {
-      // The GroupRoom component will be rendered
-      console.log('Starting voice chat with group:', currentGroupId);
+    // Clear polling
+    if (pollInterval) {
+      clearInterval(pollInterval);
+      setPollInterval(null);
     }
-  };
 
-  const handleLeaveGroup = () => {
-    setCurrentGroupId(null);
-    setMatchData(null);
-    setQueueStatus('idle');
+    // Reset state
+    setView('chat-options');
     setWaitingTime(0);
-  };
+    setMatchData(null);
+    setSelectedTopics([]);
+  }, [pollInterval]);
 
+  // Join room
+  const handleJoinRoom = useCallback(() => {
+    setView('in-room');
+  }, []);
+
+  // Leave room
+  const handleLeaveRoom = useCallback(() => {
+    setView('chat-options');
+    setMatchData(null);
+    setSelectedTopics([]);
+  }, []);
+
+  // Format time
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  // If user is in a voice group, show the GroupRoom component
-  if (currentGroupId) {
+  // Update waiting time
+  useEffect(() => {
+    if (view === 'queue') {
+      const timer = setInterval(() => {
+        setWaitingTime(prev => prev + 1);
+      }, 1000);
+
+      return () => clearInterval(timer);
+    }
+  }, [view]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (pollInterval) {
+        clearInterval(pollInterval);
+      }
+    };
+  }, [pollInterval]);
+
+  // If user is in a voice room, show the OneOnOneRoom component
+  if (view === 'in-room' && matchData) {
     return (
-      <GroupRoom 
-        groupId={currentGroupId}
-        onLeave={handleLeaveGroup}
+      <OneOnOneRoom 
+        roomName={matchData.roomName}
+        peerId={matchData.peerId}
+        peerTopics={matchData.peerTopics}
+        onLeave={handleLeaveRoom}
       />
     );
   }
 
   return (
     <div className="max-w-2xl mx-auto space-y-8">
-      <div className="text-center">
-        <h2 className="text-2xl font-semibold text-foreground mb-4">Random Chat</h2>
-        <p className="text-muted-foreground">
-          Connect with random users for voice conversations. Choose between 1-on-1 chats or small groups.
-        </p>
-      </div>
+      {/* Chat Options View */}
+      {view === 'chat-options' && (
+        <RandomChatOptions 
+          onSelectOneOnOne={handleSelectOneOnOne}
+          onSelectGroupChat={handleSelectGroupChat}
+        />
+      )}
 
-      {queueStatus === 'idle' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {/* 1-on-1 Chat */}
-          <div className="p-8 rounded-xl border border-border/20 bg-card/95 backdrop-blur-xl text-center">
-            <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-primary/20 flex items-center justify-center">
-              <Users className="w-8 h-8 text-primary" />
-            </div>
-            <h3 className="text-xl font-semibold text-foreground mb-2">1-on-1 Chat</h3>
-            <p className="text-muted-foreground mb-6">
-              Get matched with a random person for a private voice conversation.
-            </p>
+      {/* Topic Selection View */}
+      {view === 'topic-selection' && (
+        <div>
+          <div className="mb-6">
             <button
-              onClick={() => handleJoinQueue('1v1')}
-              className="w-full py-3 px-6 bg-primary text-primary-foreground rounded-lg font-medium hover:bg-primary/90 transition-colors"
+              onClick={handleBackToOptions}
+              className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors"
             >
-              Find Random Partner
+              <ArrowLeft className="w-4 h-4" />
+              Back
             </button>
           </div>
-
-          {/* Random Group */}
-          <div className="p-8 rounded-xl border border-border/20 bg-card/95 backdrop-blur-xl text-center">
-            <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-primary/20 flex items-center justify-center">
-              <UserPlus className="w-8 h-8 text-primary" />
-            </div>
-            <h3 className="text-xl font-semibold text-foreground mb-2">Random Group</h3>
-            <p className="text-muted-foreground mb-6">
-              Join a small group of 3-4 random people for collaborative discussions.
-            </p>
-            <button
-              onClick={() => handleJoinQueue('group')}
-              className="w-full py-3 px-6 bg-primary text-primary-foreground rounded-lg font-medium hover:bg-primary/90 transition-colors"
-            >
-              Join Random Group
-            </button>
-          </div>
+          <TopicSelection onStartMatching={handleStartMatching} />
         </div>
       )}
 
-      {queueStatus === 'waiting' && (
+      {/* Queue View */}
+      {view === 'queue' && (
         <div className="text-center py-12">
           <div className="w-20 h-20 mx-auto mb-6 rounded-full bg-primary/20 flex items-center justify-center">
             <Clock className="w-10 h-10 text-primary animate-pulse" />
           </div>
           <h3 className="text-xl font-semibold text-foreground mb-2">
-            Looking for {queueType === '1v1' ? 'a partner' : 'a group'}...
+            Looking for a partner...
           </h3>
           <p className="text-muted-foreground mb-4">
             Waiting time: {formatTime(waitingTime)}
@@ -184,6 +231,24 @@ export default function RandomQueue() {
           <p className="text-sm text-muted-foreground mb-6">
             We'll match you as soon as someone else joins the queue.
           </p>
+          
+          {/* Selected Topics Display */}
+          {selectedTopics.length > 0 && (
+            <div className="mb-6">
+              <p className="text-sm text-muted-foreground mb-2">Your topics:</p>
+              <div className="flex flex-wrap justify-center gap-2">
+                {selectedTopics.map((topic) => (
+                  <span
+                    key={topic}
+                    className="px-3 py-1 bg-primary/20 text-primary rounded-full text-sm"
+                  >
+                    {topic}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
           <button
             onClick={handleLeaveQueue}
             className="px-6 py-2 border border-border/20 rounded-lg text-foreground hover:bg-white/10 transition-colors"
@@ -193,27 +258,46 @@ export default function RandomQueue() {
         </div>
       )}
 
-      {queueStatus === 'matched' && (
+      {/* Matched View */}
+      {view === 'matched' && matchData && (
         <div className="text-center py-12">
           <div className="w-20 h-20 mx-auto mb-6 rounded-full bg-green-500/20 flex items-center justify-center">
-            <Users className="w-10 h-10 text-green-500" />
+            <CheckCircle className="w-10 h-10 text-green-500" />
           </div>
           <h3 className="text-xl font-semibold text-foreground mb-2">Match Found!</h3>
           <p className="text-muted-foreground mb-6">
-            You've been matched for a {queueType === '1v1' ? '1-on-1' : 'group'} voice chat.
+            You've been matched for a 1-on-1 voice chat.
           </p>
+          
+          {/* Peer Topics Display */}
+          {matchData.peerTopics.length > 0 && (
+            <div className="mb-6">
+              <p className="text-sm text-muted-foreground mb-2">Your partner's topics:</p>
+              <div className="flex flex-wrap justify-center gap-2">
+                {matchData.peerTopics.map((topic) => (
+                  <span
+                    key={topic}
+                    className="px-3 py-1 bg-green-500/20 text-green-500 rounded-full text-sm"
+                  >
+                    {topic}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="space-y-3">
             <button
-              onClick={handleStartVoiceChat}
+              onClick={handleJoinRoom}
               className="w-full py-3 px-6 bg-primary text-primary-foreground rounded-lg font-medium hover:bg-primary/90 transition-colors"
             >
-              Start Voice Chat
+              Join Voice Chat
             </button>
             <button
               onClick={handleLeaveQueue}
               className="w-full py-2 px-6 border border-border/20 rounded-lg text-foreground hover:bg-white/10 transition-colors"
             >
-              Leave Match
+              Decline Match
             </button>
           </div>
         </div>
@@ -234,18 +318,18 @@ export default function RandomQueue() {
           <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-primary/20 flex items-center justify-center">
             <Users className="w-6 h-6 text-primary" />
           </div>
-          <h4 className="font-medium text-foreground mb-2">Flexible Options</h4>
+          <h4 className="font-medium text-foreground mb-2">Topic-Based</h4>
           <p className="text-sm text-muted-foreground">
-            Choose between 1-on-1 or group conversations
+            Match with users who share your interests
           </p>
         </div>
         <div className="text-center">
           <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-primary/20 flex items-center justify-center">
             <UserPlus className="w-6 h-6 text-primary" />
           </div>
-          <h4 className="font-medium text-foreground mb-2">Easy Invites</h4>
+          <h4 className="font-medium text-foreground mb-2">End-to-End Encrypted</h4>
           <p className="text-sm text-muted-foreground">
-            Invite friends to join your random chat
+            Your conversations are fully encrypted
           </p>
         </div>
       </div>

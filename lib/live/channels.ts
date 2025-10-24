@@ -68,7 +68,16 @@ export async function getChannelsForUser(userId: string | null) {
   await ensureSeedChannels();
   try {
     const [publicRooms, privateRooms] = await Promise.all([
-      db.room.findMany({ where: { visibility: 'public' }, orderBy: { createdAt: 'asc' } }),
+      db.room.findMany({ 
+        where: { 
+          visibility: 'public',
+          // Exclude temporary random chat channels from base chat
+          NOT: {
+            name: 'Random Chat'
+          }
+        }, 
+        orderBy: { createdAt: 'asc' } 
+      }),
       userId
         ? db.room.findMany({ where: { visibility: 'private', ownerId: userId }, orderBy: { createdAt: 'desc' } })
         : Promise.resolve([]),
@@ -80,7 +89,7 @@ export async function getChannelsForUser(userId: string | null) {
   } catch (error) {
     console.error('Failed to fetch channels from database, falling back to memory:', error);
     ensureMemSeed();
-    const publicList = mem.channels.filter((c) => c.visibility === 'public');
+    const publicList = mem.channels.filter((c) => c.visibility === 'public' && c.name !== 'Random Chat');
     const privateOwned = userId ? mem.channels.filter((c) => c.visibility === 'private' && c.ownerId === userId) : [];
     return { public: publicList, privateOwned };
   }
