@@ -162,6 +162,12 @@ export const authOptions: NextAuthOptions = {
 
         // For Google OAuth, create or find user in database
         if (account?.provider === 'google' && user.email) {
+          console.log('🔍 Google OAuth user data:', {
+            email: user.email,
+            name: user.name,
+            image: user.image,
+            id: user.id
+          });
           try {
             let dbUser = await db.user.findUnique({ where: { email: user.email } });
 
@@ -177,13 +183,28 @@ export const authOptions: NextAuthOptions = {
               });
 
             } else {
-
+              // Update existing user with latest Google OAuth data
+              dbUser = await db.user.update({
+                where: { email: user.email },
+                data: {
+                  name: user.name || dbUser.name,
+                  image: user.image || dbUser.image,
+                  emailVerified: new Date(),
+                }
+              });
             }
 
             (token as any).id = dbUser.id;
             token.name = dbUser.name || user.name;
             token.email = dbUser.email;
             (token as any).image = dbUser.image || user.image;
+            
+            console.log('🔍 Updated token with user data:', {
+              id: (token as any).id,
+              name: token.name,
+              email: token.email,
+              image: (token as any).image
+            });
           } catch (error) {
             console.error('❌ Error in JWT callback:', error);
             // Fallback to user data from OAuth
