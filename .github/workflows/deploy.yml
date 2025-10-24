@@ -22,8 +22,6 @@ jobs:
 
       - name: Build application
         run: npm run build
-        env:
-          DATABASE_URL: "postgresql://dummy:dummy@localhost:5432/dummy"
 
       - name: Prune devDependencies
         run: npm prune --omit=dev
