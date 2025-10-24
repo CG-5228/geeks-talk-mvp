@@ -13,6 +13,7 @@ export interface MessageInputProps {
   onSendMessage: (text: string, replyToId?: string) => void;
   maxChars?: number;
   disabled?: boolean;
+  channelId?: string;
   replyContext?: {
     message: {
       id: string;
@@ -24,7 +25,7 @@ export interface MessageInputProps {
   };
 }
 
-export default function MessageInput({ onSendMessage, maxChars = 500, disabled, replyContext }: MessageInputProps) {
+export default function MessageInput({ onSendMessage, maxChars = 500, disabled, channelId, replyContext }: MessageInputProps) {
   const [text, setText] = useState("");
   const taRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -90,18 +91,26 @@ export default function MessageInput({ onSendMessage, maxChars = 500, disabled, 
   };
 
   const uploadFiles = async (files: File[]) => {
+    if (!channelId) {
+      console.error('No channel ID provided for file upload');
+      alert('Unable to upload files: No channel selected');
+      setUploadingFiles([]);
+      return;
+    }
+
     try {
       const uploadPromises = files.map(async (file) => {
         const formData = new FormData();
         formData.append('file', file);
 
-        const response = await fetch(`/api/live/channels/${window.location.pathname.split('/').pop()}/files`, {
+        const response = await fetch(`/api/live/channels/${channelId}/files`, {
           method: 'POST',
           body: formData,
         });
 
         if (!response.ok) {
-          throw new Error(`Failed to upload ${file.name}`);
+          const errorData = await response.json().catch(() => ({ error: 'Upload failed' }));
+          throw new Error(errorData.error || `Failed to upload ${file.name}`);
         }
 
         const data = await response.json();
@@ -117,7 +126,7 @@ export default function MessageInput({ onSendMessage, maxChars = 500, disabled, 
       setUploadedFiles(prev => [...prev, ...results]);
     } catch (error) {
       console.error('Error uploading files:', error);
-      alert('Failed to upload files. Please try again.');
+      alert(`Failed to upload files: ${error instanceof Error ? error.message : 'Please try again.'}`);
     } finally {
       setUploadingFiles([]);
     }
@@ -200,9 +209,10 @@ export default function MessageInput({ onSendMessage, maxChars = 500, disabled, 
 
           {/* File upload button */}
           <button
-            className="p-2 rounded-xl hover:bg-white/5 text-[rgba(220,235,255,0.8)]"
-            title="Upload file"
+            className="p-2 rounded-xl hover:bg-white/5 text-[rgba(220,235,255,0.8)] disabled:opacity-50 disabled:cursor-not-allowed"
+            title={channelId ? "Upload file" : "Select a channel to upload files"}
             onClick={() => fileInputRef.current?.click()}
+            disabled={!channelId}
           >
             <Plus className="h-4.5 w-4.5" />
           </button>

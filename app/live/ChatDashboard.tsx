@@ -507,7 +507,7 @@ export default function ChatDashboard() {
                 onUnsendMessage={(messageId) => handleUnsendMessage(messageId, 'channel')}
               />
               {active && (
-                <MessageInput onSendMessage={handleSendMessage} />
+                <MessageInput onSendMessage={handleSendMessage} channelId={active.id} />
               )}
             </>
           ) : (
