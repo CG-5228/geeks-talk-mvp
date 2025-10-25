@@ -47,6 +47,7 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
   const [e2eeStatus, setE2eeStatus] = useState<E2EEStatus>('initializing');
   const [peerParticipant, setPeerParticipant] = useState<RemoteParticipant | null>(null);
   const [connectionQuality, setConnectionQuality] = useState<'excellent' | 'good' | 'poor'>('excellent');
+  const [keyExchangeTimeout, setKeyExchangeTimeout] = useState<NodeJS.Timeout | null>(null);
   
   // E2EE state
   const [myKeypair, setMyKeypair] = useState<{ publicKey: Uint8Array; privateKey: CryptoKey } | null>(null);
@@ -82,19 +83,10 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
       // Check E2EE support
       const supportInfo = getE2EESupportInfo();
       if (!supportInfo.insertableStreams || !supportInfo.webCrypto || !supportInfo.x25519) {
+        console.warn('E2EE not supported:', supportInfo);
         setE2eeStatus('unsupported');
-        showDialog({
-          title: 'E2EE Not Supported',
-          message: 'Your browser does not support end-to-end encryption. Join without encryption?',
-          type: 'warning',
-          onConfirm: () => {
-            setE2eeStatus('ready'); // Allow joining without E2EE
-            connectToRoom();
-          },
-          onCancel: onLeave,
-          confirmText: 'Join Anyway',
-          cancelText: 'Leave'
-        });
+        // Still connect to room without E2EE
+        await connectToRoom();
         return;
       }
 
@@ -142,10 +134,13 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
       roomRef.current = roomInstance;
       setIsConnected(true);
 
-      // Start E2EE key exchange if supported
-      if (e2eeStatus !== 'unsupported') {
-        await startE2EEKeyExchange(roomInstance);
-      }
+      // Wait a moment for connection to stabilize, then start E2EE key exchange
+      setTimeout(async () => {
+        if (e2eeStatus !== 'unsupported') {
+          console.log('Starting E2EE key exchange after connection...');
+          await startE2EEKeyExchange(roomInstance);
+        }
+      }, 1000);
 
     } catch (error) {
       console.error('Failed to connect to room:', error);
@@ -156,6 +151,7 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
   const setupRoomEventListeners = (roomInstance: Room) => {
     roomInstance.on(RoomEvent.Connected, () => {
       console.log('Connected to room');
+      setIsConnected(true);
     });
 
     roomInstance.on(RoomEvent.Disconnected, () => {
@@ -178,6 +174,7 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
     });
 
     roomInstance.on(RoomEvent.DataReceived, (payload: Uint8Array, participant?: RemoteParticipant) => {
+      console.log('Data received from:', participant?.identity, 'expected peer:', peerId);
       if (participant?.identity === peerId) {
         handleDataReceived(payload);
       }
@@ -200,6 +197,7 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
   const startE2EEKeyExchange = async (roomInstance: Room) => {
     try {
       setE2eeStatus('exchanging');
+      console.log('Starting E2EE key exchange...');
 
       // Send our public key
       if (myKeypair) {
@@ -216,6 +214,17 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
         );
         console.log('Sent public key to peer');
       }
+
+      // Set up a timeout for key exchange
+      const keyExchangeTimeout = setTimeout(() => {
+        if (e2eeStatus === 'exchanging') {
+          console.log('Key exchange timeout - no peer key received');
+          setE2eeStatus('error');
+        }
+      }, 10000); // 10 second timeout
+
+      // Store timeout for cleanup
+      setKeyExchangeTimeout(keyExchangeTimeout);
 
     } catch (error) {
       console.error('Failed to start E2EE key exchange:', error);
@@ -275,6 +284,12 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
       if (success) {
         setE2eeStatus('ready');
         console.log('E2EE setup completed successfully');
+        
+        // Clear timeout
+        if (keyExchangeTimeout) {
+          clearTimeout(keyExchangeTimeout);
+          setKeyExchangeTimeout(null);
+        }
         
         // Clear sensitive data
         clearSensitiveData(sharedSecret);
@@ -386,6 +401,11 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
     if (rekeyTimer) {
       clearTimeout(rekeyTimer);
       setRekeyTimer(null);
+    }
+    
+    if (keyExchangeTimeout) {
+      clearTimeout(keyExchangeTimeout);
+      setKeyExchangeTimeout(null);
     }
     
     if (room) {
