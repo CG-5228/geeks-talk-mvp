@@ -4,6 +4,45 @@ import { authOptions } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { redisQueue } from '@/lib/redis';
 import { nanoid } from 'nanoid';
+import { z } from 'zod';
+
+// Validation schemas
+const QueueRequestSchema = z.object({
+  topics: z.array(z.string().min(1).max(50)).max(10), // Max 10 topics, each 1-50 chars
+});
+
+// Rate limiting store (in production, use Redis)
+const rateLimitStore = new Map<string, { count: number; resetTime: number }>();
+
+// Rate limiting helper
+function checkRateLimit(userId: string, maxRequests: number = 5, windowMs: number = 60000): boolean {
+  const now = Date.now();
+  const userLimit = rateLimitStore.get(userId);
+  
+  if (userLimit) {
+    if (now < userLimit.resetTime) {
+      if (userLimit.count >= maxRequests) {
+        return false;
+      }
+      userLimit.count++;
+    } else {
+      rateLimitStore.set(userId, { count: 1, resetTime: now + windowMs });
+    }
+  } else {
+    rateLimitStore.set(userId, { count: 1, resetTime: now + windowMs });
+  }
+  
+  // Clean up expired entries
+  const keysToDelete: string[] = [];
+  rateLimitStore.forEach((value, key) => {
+    if (now >= value.resetTime) {
+      keysToDelete.push(key);
+    }
+  });
+  keysToDelete.forEach(key => rateLimitStore.delete(key));
+  
+  return true;
+}
 
 // POST /api/voice/random/queue - Enter queue with topics
 export async function POST(request: NextRequest) {
@@ -12,14 +51,28 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
+  const userId = session.user.id;
+
+  // Rate limiting: 5 requests per minute per user
+  if (!checkRateLimit(userId, 5, 60000)) {
+    return NextResponse.json({ 
+      error: 'Rate limit exceeded. Please try again later.' 
+    }, { status: 429 });
+  }
+
   try {
-    const { topics } = await request.json();
+    const body = await request.json();
     
-    if (!Array.isArray(topics)) {
-      return NextResponse.json({ error: 'Topics must be an array' }, { status: 400 });
+    // Validate request body with Zod
+    const validationResult = QueueRequestSchema.safeParse(body);
+    if (!validationResult.success) {
+      return NextResponse.json({ 
+        error: 'Invalid request format',
+        details: validationResult.error.issues 
+      }, { status: 400 });
     }
 
-    const userId = session.user.id;
+    const { topics } = validationResult.data;
 
     // Check if user is already in a voice group
     const existingGroup = await db.voiceGroupMember.findFirst({
@@ -41,12 +94,9 @@ export async function POST(request: NextRequest) {
       
       if (matchAge > maxMatchAge) {
         // Match is expired, clean it up
-        console.log(`Cleaning up expired match for user ${userId}`);
         await redisQueue.forceCleanupUser(userId);
       } else {
-        // For now, always clean up existing matches to allow re-joining
-        // This prevents users from getting stuck with stale match data
-        console.log(`Cleaning up existing match for user ${userId} to allow re-joining`);
+        // Clean up existing matches to allow re-joining
         await redisQueue.forceCleanupUser(userId);
       }
     }
@@ -62,8 +112,6 @@ export async function POST(request: NextRequest) {
     const bestMatch = await redisQueue.findBestMatch(userId, topics);
     
     if (bestMatch) {
-      console.log(`Found match for user ${userId} with ${bestMatch.userId}`);
-      
       // Create match atomically
       const roomName = `1v1-${nanoid()}`;
       const matchCreated = await redisQueue.createMatch(
@@ -75,18 +123,13 @@ export async function POST(request: NextRequest) {
       );
 
       if (matchCreated) {
-        console.log(`Match created successfully: ${userId} <-> ${bestMatch.userId} in room ${roomName}`);
         return NextResponse.json({
           matched: true,
           roomName,
           peerId: bestMatch.userId,
           peerTopics: bestMatch.topics,
         });
-      } else {
-        console.log(`Failed to create match between ${userId} and ${bestMatch.userId}`);
       }
-    } else {
-      console.log(`No match found for user ${userId} with topics:`, topics);
     }
 
     // No immediate match found
@@ -109,15 +152,19 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
+  const userId = session.user.id;
+
+  // Rate limiting: 30 requests per minute per user for polling
+  if (!checkRateLimit(userId, 30, 60000)) {
+    return NextResponse.json({ 
+      error: 'Rate limit exceeded. Please try again later.' 
+    }, { status: 429 });
+  }
+
   try {
-    const userId = session.user.id;
-    console.log(`Checking status for user ${userId}`);
-    
     const match = await redisQueue.getMatch(userId);
-    console.log(`Match data for user ${userId}:`, match);
 
     if (match) {
-      console.log(`Match found for user ${userId}:`, match);
       return NextResponse.json({
         matched: true,
         roomName: match.roomName,
@@ -126,7 +173,6 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    console.log(`No match found for user ${userId}`);
     return NextResponse.json({ matched: false });
 
   } catch (error) {
@@ -142,9 +188,16 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  try {
-    const userId = session.user.id;
+  const userId = session.user.id;
 
+  // Rate limiting: 10 requests per minute per user
+  if (!checkRateLimit(userId, 10, 60000)) {
+    return NextResponse.json({ 
+      error: 'Rate limit exceeded. Please try again later.' 
+    }, { status: 429 });
+  }
+
+  try {
     // Remove user from queue and clean up data
     await redisQueue.dequeue(userId);
     await redisQueue.deleteUser(userId);

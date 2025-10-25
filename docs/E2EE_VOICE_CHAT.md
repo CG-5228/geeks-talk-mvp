@@ -12,17 +12,24 @@ This document describes the end-to-end encrypted 1v1 random voice chat feature i
 - **Key Exchange**: X25519 Diffie-Hellman over LiveKit DataChannel
 - **Key Derivation**: HKDF-SHA256 with room name as info
 - **Rekey**: Every 10 minutes and on participant changes
+- **Rate Limiting**: 5 queue requests/min, 30 status polls/min, 10 token requests/min
+- **Token TTL**: 5 minutes maximum
+- **Queue TTL**: 2 minutes for user metadata, 10 minutes for matches
 
 ### Security Guarantees
 - **Media E2EE**: Audio/video streams are encrypted end-to-end
 - **Server Never Sees Keys**: All key material stays on client
 - **Perfect Forward Secrecy**: Keys are rotated regularly
 - **No Key Storage**: Server never persists or logs encryption keys
+- **Input Validation**: All inputs validated with Zod schemas
+- **Rate Limiting**: Prevents abuse and DoS attacks
+- **Atomic Operations**: Redis transactions prevent race conditions
 
 ### Limitations
 - **Text Chat**: Not E2EE by default (encrypted in transit only)
 - **File Sharing**: Not E2EE by default (encrypted in transit only)
 - **Browser Support**: Requires insertable streams support
+- **Redis Dependency**: Requires Redis for queue management
 
 ## Environment Setup
 
@@ -188,6 +195,35 @@ docker run -d -p 6379:6379 redis:alpine
 - E2EE adds minimal overhead
 - Rekey is asynchronous
 - Graceful fallback for unsupported browsers
+
+## Refined Implementation Details
+
+### Enhanced Security Features
+- **Input Validation**: All API endpoints use Zod schemas for validation
+- **Rate Limiting**: Per-user rate limits prevent abuse (5 queue/min, 30 status/min, 10 token/min)
+- **Error Handling**: Comprehensive error handling with user-friendly messages
+- **Telemetry**: Anonymous metrics for debugging (no PII logging)
+- **Atomic Operations**: Redis transactions ensure data consistency
+
+### Queue Management Improvements
+- **Topic-Based Matching**: Prioritizes users with common topics (10 points per common topic)
+- **Fallback Matching**: Matches users with no topics when appropriate (5 points bonus)
+- **Queue Bounds**: Limited to 100 entries to prevent O(n²) operations
+- **TTL Management**: Automatic cleanup of expired data (2min user meta, 10min matches)
+- **Race Condition Prevention**: Atomic match creation with Redis transactions
+
+### Client-Side Enhancements
+- **State Machine**: Proper view state management (chat-options → topic-selection → queue → matched → in-room)
+- **Error Recovery**: Graceful handling of network errors with retry options
+- **Rate Limit Handling**: User-friendly rate limit messages with cooldown
+- **E2EE Status**: Clear indication of encryption status with visual feedback
+- **Fallback Support**: Graceful degradation for unsupported browsers
+
+### Testing and Verification
+- **Unit Tests**: Comprehensive test coverage for crypto functions and queue operations
+- **Integration Tests**: End-to-end testing of matching and E2EE flow
+- **Manual Testing**: Step-by-step testing guide for verification
+- **Telemetry**: Anonymous metrics for monitoring and debugging
 
 ## Future Enhancements
 

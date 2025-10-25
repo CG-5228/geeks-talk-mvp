@@ -20,6 +20,11 @@ export interface E2EEStatus {
  */
 export async function generateX25519Keypair(): Promise<X25519Keypair> {
   try {
+    // Check if X25519 is supported
+    if (!crypto.subtle) {
+      throw new Error('Web Crypto API not supported');
+    }
+
     const keyPair = await crypto.subtle.generateKey(
       {
         name: 'X25519',
@@ -32,6 +37,11 @@ export async function generateX25519Keypair(): Promise<X25519Keypair> {
     // Export public key as raw bytes
     const publicKeyBuffer = await crypto.subtle.exportKey('raw', keyPair.publicKey);
     const publicKey = new Uint8Array(publicKeyBuffer);
+
+    // Validate key size
+    if (publicKey.length !== 32) {
+      throw new Error('Invalid public key size');
+    }
 
     return {
       publicKey,
@@ -51,6 +61,15 @@ export async function deriveSharedSecret(
   peerPublicKey: Uint8Array
 ): Promise<Uint8Array> {
   try {
+    // Validate inputs
+    if (!myPrivateKey || !peerPublicKey) {
+      throw new Error('Invalid key parameters');
+    }
+
+    if (peerPublicKey.length !== 32) {
+      throw new Error('Invalid peer public key size');
+    }
+
     // Import peer's public key
     const peerPublicKeyCrypto = await crypto.subtle.importKey(
       'raw',
@@ -73,7 +92,14 @@ export async function deriveSharedSecret(
       256 // 32 bytes
     );
 
-    return new Uint8Array(sharedSecret);
+    const result = new Uint8Array(sharedSecret);
+    
+    // Validate result
+    if (result.length !== 32) {
+      throw new Error('Invalid shared secret size');
+    }
+
+    return result;
   } catch (error) {
     console.error('Failed to derive shared secret:', error);
     throw new Error('Key exchange failed');
@@ -89,6 +115,19 @@ export async function hkdf(
   keyIndex: number = 0
 ): Promise<Uint8Array> {
   try {
+    // Validate inputs
+    if (!secret || secret.length !== 32) {
+      throw new Error('Invalid secret size');
+    }
+
+    if (!roomName || typeof roomName !== 'string' || roomName.length === 0) {
+      throw new Error('Invalid room name');
+    }
+
+    if (keyIndex < 0 || !Number.isInteger(keyIndex)) {
+      throw new Error('Invalid key index');
+    }
+
     // Import the shared secret as a key
     const key = await crypto.subtle.importKey(
       'raw',
@@ -113,7 +152,14 @@ export async function hkdf(
       256 // 32 bytes
     );
 
-    return new Uint8Array(derivedKey);
+    const result = new Uint8Array(derivedKey);
+    
+    // Validate result
+    if (result.length !== 32) {
+      throw new Error('Invalid derived key size');
+    }
+
+    return result;
   } catch (error) {
     console.error('Failed to derive HKDF key:', error);
     throw new Error('Key derivation failed');
@@ -153,6 +199,19 @@ export async function setupSFrameEncryption(
   keyIndex: number = 0
 ): Promise<boolean> {
   try {
+    // Validate inputs
+    if (!room) {
+      throw new Error('Invalid room instance');
+    }
+
+    if (!sharedKey || sharedKey.length !== 32) {
+      throw new Error('Invalid shared key size');
+    }
+
+    if (keyIndex < 0 || !Number.isInteger(keyIndex)) {
+      throw new Error('Invalid key index');
+    }
+
     if (!room.e2eeManager) {
       throw new Error('E2EE not supported in this browser');
     }
@@ -192,6 +251,23 @@ export async function rekeySession(
   newKeyIndex: number
 ): Promise<boolean> {
   try {
+    // Validate inputs
+    if (!room || !room.e2eeManager) {
+      throw new Error('Invalid room or E2EE not supported');
+    }
+
+    if (!myPrivateKey || !peerPublicKey) {
+      throw new Error('Invalid key parameters');
+    }
+
+    if (!roomName || typeof roomName !== 'string') {
+      throw new Error('Invalid room name');
+    }
+
+    if (newKeyIndex < 0 || !Number.isInteger(newKeyIndex)) {
+      throw new Error('Invalid key index');
+    }
+
     // Derive new shared secret
     const sharedSecret = await deriveSharedSecret(myPrivateKey, peerPublicKey);
     
@@ -239,6 +315,19 @@ export async function encryptData(
   nonce?: Uint8Array
 ): Promise<{ encrypted: Uint8Array; nonce: Uint8Array; tag: Uint8Array }> {
   try {
+    // Validate inputs
+    if (!data || data.length === 0) {
+      throw new Error('Invalid data to encrypt');
+    }
+
+    if (!key || key.length !== 32) {
+      throw new Error('Invalid key size');
+    }
+
+    if (nonce && nonce.length !== 12) {
+      throw new Error('Invalid nonce size');
+    }
+
     const iv = nonce || generateNonce();
     
     // Import key
@@ -286,6 +375,23 @@ export async function decryptData(
   tag: Uint8Array
 ): Promise<Uint8Array> {
   try {
+    // Validate inputs
+    if (!encrypted || encrypted.length === 0) {
+      throw new Error('Invalid encrypted data');
+    }
+
+    if (!key || key.length !== 32) {
+      throw new Error('Invalid key size');
+    }
+
+    if (!nonce || nonce.length !== 12) {
+      throw new Error('Invalid nonce size');
+    }
+
+    if (!tag || tag.length !== 16) {
+      throw new Error('Invalid tag size');
+    }
+
     // Combine encrypted data and tag
     const combined = new Uint8Array(encrypted.length + tag.length);
     combined.set(encrypted);

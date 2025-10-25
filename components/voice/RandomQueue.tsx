@@ -6,6 +6,7 @@ import { useStyledDialog } from '../ui/StyledDialog';
 import RandomChatOptions from './RandomChatOptions';
 import TopicSelection from './TopicSelection';
 import OneOnOneRoom from './OneOnOneRoom';
+import { logQueueEnter, logQueueLeave, logMatchFound, logError } from '@/lib/telemetry';
 
 type ViewState = 'chat-options' | 'topic-selection' | 'queue' | 'matched' | 'in-room';
 
@@ -48,6 +49,9 @@ export default function RandomQueue() {
     setView('queue');
     setWaitingTime(0);
 
+    // Log telemetry
+    logQueueEnter(topics.length);
+
     try {
       const response = await fetch('/api/voice/random/queue', {
         method: 'POST',
@@ -66,27 +70,47 @@ export default function RandomQueue() {
             peerTopics: data.peerTopics,
           });
           setView('matched');
+          logMatchFound(true, 0); // Immediate match
         } else {
           // Start polling for match
           startPolling();
         }
-      } else {
-        const error = await response.json();
+      } else if (response.status === 429) {
+        logError('rate_limit', 'Too many requests');
         showDialog({
-          title: 'Failed to join queue',
-          message: error.error || 'Failed to join queue',
+          title: 'Rate Limited',
+          message: 'Too many requests. Please wait a moment before trying again.',
           type: 'error'
         });
-        setView('chat-options');
+        setView('topic-selection');
+      } else if (response.status === 400) {
+        logError('validation', 'Invalid request format');
+        const errorData = await response.json();
+        showDialog({
+          title: 'Invalid Request',
+          message: errorData.error || 'Please check your topic selection and try again.',
+          type: 'error'
+        });
+        setView('topic-selection');
+      } else {
+        logError('network', 'Server error');
+        const errorData = await response.json();
+        showDialog({
+          title: 'Failed to Join Queue',
+          message: errorData.error || 'An error occurred while joining the queue.',
+          type: 'error'
+        });
+        setView('topic-selection');
       }
     } catch (error) {
       console.error('Error joining queue:', error);
+      logError('network', 'Connection failed');
       showDialog({
         title: 'Connection Error',
-        message: 'Failed to join queue. Please check your connection and try again.',
+        message: 'Failed to connect to the server. Please check your internet connection and try again.',
         type: 'error'
       });
-      setView('chat-options');
+      setView('topic-selection');
     }
   }, [session?.user?.id, showDialog]);
 
@@ -94,13 +118,10 @@ export default function RandomQueue() {
   const startPolling = useCallback(() => {
     const interval = setInterval(async () => {
       try {
-        console.log('Polling for match...');
         const response = await fetch('/api/voice/random/queue/status');
         if (response.ok) {
           const data = await response.json();
-          console.log('Poll response:', data);
           if (data.matched) {
-            console.log('Match found! Transitioning to matched view');
             setMatchData({
               roomName: data.roomName,
               peerId: data.peerId,
@@ -109,17 +130,35 @@ export default function RandomQueue() {
             setView('matched');
             clearInterval(interval);
             setPollInterval(null);
+            logMatchFound(true, waitingTime * 2); // Approximate queue duration
           }
-        } else {
-          console.log('Poll response not ok:', response.status);
+        } else if (response.status === 429) {
+          // Rate limited, slow down polling
+          clearInterval(interval);
+          setPollInterval(null);
+          setView('chat-options');
+          showDialog({
+            title: 'Rate Limited',
+            message: 'Too many requests. Please wait a moment before trying again.',
+            type: 'error'
+          });
         }
       } catch (error) {
         console.error('Error polling for match:', error);
+        // On network error, stop polling and show error
+        clearInterval(interval);
+        setPollInterval(null);
+        setView('chat-options');
+        showDialog({
+          title: 'Connection Error',
+          message: 'Failed to check for matches. Please try again.',
+          type: 'error'
+        });
       }
     }, 2000); // Poll every 2 seconds
 
     setPollInterval(interval);
-  }, []);
+  }, [showDialog]);
 
   // Leave queue
   const handleLeaveQueue = useCallback(async () => {
@@ -127,8 +166,10 @@ export default function RandomQueue() {
       await fetch('/api/voice/random/queue', {
         method: 'DELETE',
       });
+      logQueueLeave('cancel', waitingTime * 2);
     } catch (error) {
       console.error('Error leaving queue:', error);
+      logError('network', 'Failed to leave queue');
     }
 
     // Clear polling
