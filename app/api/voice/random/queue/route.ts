@@ -111,7 +111,10 @@ export async function GET(request: NextRequest) {
 
   try {
     const userId = session.user.id;
+    console.log(`Checking status for user ${userId}`);
+    
     const match = await redisQueue.getMatch(userId);
+    console.log(`Match data for user ${userId}:`, match);
 
     if (match) {
       console.log(`Match found for user ${userId}:`, match);

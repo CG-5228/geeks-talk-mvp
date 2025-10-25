@@ -94,10 +94,13 @@ export default function RandomQueue() {
   const startPolling = useCallback(() => {
     const interval = setInterval(async () => {
       try {
+        console.log('Polling for match...');
         const response = await fetch('/api/voice/random/queue/status');
         if (response.ok) {
           const data = await response.json();
+          console.log('Poll response:', data);
           if (data.matched) {
+            console.log('Match found! Transitioning to matched view');
             setMatchData({
               roomName: data.roomName,
               peerId: data.peerId,
@@ -107,6 +110,8 @@ export default function RandomQueue() {
             clearInterval(interval);
             setPollInterval(null);
           }
+        } else {
+          console.log('Poll response not ok:', response.status);
         }
       } catch (error) {
         console.error('Error polling for match:', error);

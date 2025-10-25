@@ -120,20 +120,23 @@ export class RedisQueue {
 
   // Set match data for both users
   async setMatch(userId: string, peerId: string, roomName: string, peerTopics: string[]): Promise<void> {
-    const matchData: MatchData = {
+    const matchData1: MatchData = {
       roomName,
       peerId,
       peerTopics,
       ts: Date.now(),
     };
 
-    const pipeline = this.redis.pipeline();
-    pipeline.hset(`rv:match:${userId}`, matchData);
-    pipeline.hset(`rv:match:${peerId}`, {
-      ...matchData,
+    const matchData2: MatchData = {
+      roomName,
       peerId: userId,
-      peerTopics: [], // Will be filled by the other user's topics
-    });
+      peerTopics: [], // This will be set by the calling function
+      ts: Date.now(),
+    };
+
+    const pipeline = this.redis.pipeline();
+    pipeline.hset(`rv:match:${userId}`, matchData1);
+    pipeline.hset(`rv:match:${peerId}`, matchData2);
     pipeline.expire(`rv:match:${userId}`, 600); // 10 minutes TTL
     pipeline.expire(`rv:match:${peerId}`, 600); // 10 minutes TTL
     await pipeline.exec();
@@ -141,15 +144,24 @@ export class RedisQueue {
 
   // Get match data for user
   async getMatch(userId: string): Promise<MatchData | null> {
+    console.log(`Getting match for user ${userId}`);
     const match = await this.redis.hgetall(`rv:match:${userId}`);
-    if (Object.keys(match).length === 0) return null;
+    console.log(`Raw match data for ${userId}:`, match);
+    
+    if (Object.keys(match).length === 0) {
+      console.log(`No match data found for user ${userId}`);
+      return null;
+    }
 
-    return {
+    const result = {
       roomName: match.roomName,
       peerId: match.peerId,
       peerTopics: JSON.parse(match.peerTopics || '[]'),
       ts: parseInt(match.ts || '0'),
     };
+    
+    console.log(`Processed match data for ${userId}:`, result);
+    return result;
   }
 
   // Delete user data (cleanup)
