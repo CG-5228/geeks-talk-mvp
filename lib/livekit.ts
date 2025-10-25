@@ -24,8 +24,14 @@ export async function generateLiveKitToken({
 
   if (!apiKey || !apiSecret) {
     // For development, return a mock token
-    console.warn('LiveKit API key and secret not configured. Using mock token for development.');
-    return 'mock-livekit-token-for-development';
+    console.error('❌ LiveKit API key and secret not configured!');
+    console.error('Please set LIVEKIT_API_KEY and LIVEKIT_API_SECRET environment variables.');
+    console.error('Current env check:', {
+      LIVEKIT_API_KEY: !!apiKey,
+      LIVEKIT_API_SECRET: !!apiSecret,
+      LIVEKIT_URL: !!process.env.LIVEKIT_URL
+    });
+    throw new Error('LiveKit credentials not configured. Please set LIVEKIT_API_KEY and LIVEKIT_API_SECRET environment variables.');
   }
 
   const token = new AccessToken(apiKey, apiSecret, {
