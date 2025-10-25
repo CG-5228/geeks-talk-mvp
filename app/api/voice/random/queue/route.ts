@@ -32,12 +32,23 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
-    // Check if user already has a match
+    // Check if user already has a match and clean up if expired
     const existingMatch = await redisQueue.getMatch(userId);
     if (existingMatch) {
-      return NextResponse.json({ 
-        error: 'You already have a match. Please leave the current match first.' 
-      }, { status: 400 });
+      // Check if the match is still valid (not expired)
+      const matchAge = Date.now() - existingMatch.ts;
+      const maxMatchAge = 10 * 60 * 1000; // 10 minutes
+      
+      if (matchAge > maxMatchAge) {
+        // Match is expired, clean it up
+        console.log(`Cleaning up expired match for user ${userId}`);
+        await redisQueue.forceCleanupUser(userId);
+      } else {
+        // For now, always clean up existing matches to allow re-joining
+        // This prevents users from getting stuck with stale match data
+        console.log(`Cleaning up existing match for user ${userId} to allow re-joining`);
+        await redisQueue.forceCleanupUser(userId);
+      }
     }
 
     // Store user metadata

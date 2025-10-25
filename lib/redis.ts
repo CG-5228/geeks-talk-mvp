@@ -252,6 +252,22 @@ export class RedisQueue {
     // Redis TTLs handle most cleanup, but we can add manual cleanup here if needed
     console.log('Redis cleanup completed (TTLs handle automatic cleanup)');
   }
+
+  // Force cleanup of user data (for expired matches)
+  async forceCleanupUser(userId: string): Promise<void> {
+    const pipeline = this.redis.pipeline();
+    pipeline.del(`rv:user:${userId}`);
+    pipeline.del(`rv:match:${userId}`);
+    // Remove from queue if present
+    const queueEntries = await this.getQueue();
+    const filteredEntries = queueEntries.filter(entry => entry.userId !== userId);
+    pipeline.del('rv:queue');
+    if (filteredEntries.length > 0) {
+      pipeline.lpush('rv:queue', ...filteredEntries.map(entry => JSON.stringify(entry)));
+    }
+    await pipeline.exec();
+    console.log(`Force cleaned user data for ${userId}`);
+  }
 }
 
 // Export singleton instance
