@@ -560,7 +560,7 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
               const dataArray = new Uint8Array(analyser.frequencyBinCount);
               
               const updateLocalAudioLevel = () => {
-                if (isMicEnabled && room && audioTrack.track.mediaStreamTrack.readyState === 'live') {
+                if (isMicEnabled && room && audioTrack.track && audioTrack.track.mediaStreamTrack && audioTrack.track.mediaStreamTrack.readyState === 'live') {
                   analyser.getByteFrequencyData(dataArray);
                   const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
                   setMyAudioLevel(average / 255);
