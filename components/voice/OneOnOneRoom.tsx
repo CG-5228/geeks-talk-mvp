@@ -89,6 +89,12 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
   const [peerAudioLevel, setPeerAudioLevel] = useState(0);
   const [myAudioLevel, setMyAudioLevel] = useState(0);
   
+  // Audio monitoring refs
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const localAnalyserRef = useRef<AnalyserNode | null>(null);
+  const peerAnalyserRef = useRef<AnalyserNode | null>(null);
+  const animationFrameRef = useRef<number | null>(null);
+  
   const { showDialog, DialogComponent } = useStyledDialog();
   const roomRef = useRef<Room | null>(null);
 
@@ -340,29 +346,29 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
         
         // Monitor audio levels for peer
         try {
-          const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-          const analyser = audioContext.createAnalyser();
-          const source = audioContext.createMediaStreamSource(new MediaStream([track.mediaStreamTrack]));
+          if (!audioContextRef.current) {
+            audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+          }
+          
+          const analyser = audioContextRef.current.createAnalyser();
+          peerAnalyserRef.current = analyser;
+          const source = audioContextRef.current.createMediaStreamSource(new MediaStream([track.mediaStreamTrack]));
           source.connect(analyser);
           
           analyser.fftSize = 256;
           analyser.smoothingTimeConstant = 0.8;
           const dataArray = new Uint8Array(analyser.frequencyBinCount);
           
-          let animationId: number;
           const updateAudioLevel = () => {
             if (track.mediaStreamTrack.readyState === 'live') {
               analyser.getByteFrequencyData(dataArray);
               const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
               const normalizedLevel = average / 255;
               setPeerAudioLevel(normalizedLevel);
-              animationId = requestAnimationFrame(updateAudioLevel);
+              animationFrameRef.current = requestAnimationFrame(updateAudioLevel);
             }
           };
           updateAudioLevel();
-          
-          // Store animation ID for cleanup
-          (track as any)._animationId = animationId;
         } catch (error) {
           console.error('Failed to monitor peer audio:', error);
         }
@@ -376,8 +382,9 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
         setPeerAudioLevel(0);
         
         // Clean up animation frame
-        if ((track as any)._animationId) {
-          cancelAnimationFrame((track as any)._animationId);
+        if (animationFrameRef.current) {
+          cancelAnimationFrame(animationFrameRef.current);
+          animationFrameRef.current = null;
         }
       }
     });
@@ -403,19 +410,24 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
       if (roomInstance && roomInstance.localParticipant.audioTrackPublications.size > 0) {
         const audioTrack = Array.from(roomInstance.localParticipant.audioTrackPublications.values())[0];
         if (audioTrack.track) {
-          const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-          const analyser = audioContext.createAnalyser();
-          const source = audioContext.createMediaStreamSource(new MediaStream([audioTrack.track.mediaStreamTrack]));
+          if (!audioContextRef.current) {
+            audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+          }
+          
+          const analyser = audioContextRef.current.createAnalyser();
+          localAnalyserRef.current = analyser;
+          const source = audioContextRef.current.createMediaStreamSource(new MediaStream([audioTrack.track.mediaStreamTrack]));
           source.connect(analyser);
           
           analyser.fftSize = 256;
+          analyser.smoothingTimeConstant = 0.8;
           const dataArray = new Uint8Array(analyser.frequencyBinCount);
           
           const updateLocalAudioLevel = () => {
             analyser.getByteFrequencyData(dataArray);
             const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
             setMyAudioLevel(average / 255);
-            requestAnimationFrame(updateLocalAudioLevel);
+            animationFrameRef.current = requestAnimationFrame(updateLocalAudioLevel);
           };
           updateLocalAudioLevel();
         }
@@ -572,17 +584,19 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
 
   // Monitor local audio levels when mic is enabled
   useEffect(() => {
-    let animationFrameId: number;
-    
     if (isMicEnabled && room) {
       const monitorLocalAudio = () => {
         if (room && room.localParticipant.audioTrackPublications.size > 0) {
           const audioTrack = Array.from(room.localParticipant.audioTrackPublications.values())[0];
           if (audioTrack.track && audioTrack.track.mediaStreamTrack) {
             try {
-              const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-              const analyser = audioContext.createAnalyser();
-              const source = audioContext.createMediaStreamSource(new MediaStream([audioTrack.track.mediaStreamTrack]));
+              if (!audioContextRef.current) {
+                audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+              }
+              
+              const analyser = audioContextRef.current.createAnalyser();
+              localAnalyserRef.current = analyser;
+              const source = audioContextRef.current.createMediaStreamSource(new MediaStream([audioTrack.track.mediaStreamTrack]));
               source.connect(analyser);
               
               analyser.fftSize = 256;
@@ -594,7 +608,7 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
                   analyser.getByteFrequencyData(dataArray);
                   const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
                   setMyAudioLevel(average / 255);
-                  animationFrameId = requestAnimationFrame(updateLocalAudioLevel);
+                  animationFrameRef.current = requestAnimationFrame(updateLocalAudioLevel);
                 }
               };
               updateLocalAudioLevel();
@@ -609,12 +623,6 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
     } else {
       setMyAudioLevel(0);
     }
-    
-    return () => {
-      if (animationFrameId) {
-        cancelAnimationFrame(animationFrameId);
-      }
-    };
   }, [isMicEnabled, room]);
 
   // Periodic check for peer microphone state and audio levels
@@ -633,9 +641,12 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
             // Try to get audio level from the track
             try {
               if (audioTrack.track && audioTrack.track.mediaStreamTrack) {
-                const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-                const analyser = audioContext.createAnalyser();
-                const source = audioContext.createMediaStreamSource(new MediaStream([audioTrack.track.mediaStreamTrack]));
+                if (!audioContextRef.current) {
+                  audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+                }
+                
+                const analyser = audioContextRef.current.createAnalyser();
+                const source = audioContextRef.current.createMediaStreamSource(new MediaStream([audioTrack.track.mediaStreamTrack]));
                 source.connect(analyser);
                 
                 analyser.fftSize = 256;
@@ -852,6 +863,16 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
     if (keyExchangeTimeout) {
       clearTimeout(keyExchangeTimeout);
       setKeyExchangeTimeout(null);
+    }
+    
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
+    }
+    
+    if (audioContextRef.current) {
+      audioContextRef.current.close();
+      audioContextRef.current = null;
     }
     
     if (room) {
