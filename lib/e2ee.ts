@@ -191,7 +191,8 @@ export function base64ToArrayBuffer(str: string): ArrayBuffer {
 }
 
 /**
- * Setup SFrame encryption for LiveKit room
+ * Setup SFrame encryption for LiveKit room (DEPRECATED - use key provider directly)
+ * @deprecated Use ExternalE2EEKeyProvider.setKey() and room.setE2EEEnabled() instead
  */
 export async function setupSFrameEncryption(
   room: any, // LiveKit Room instance

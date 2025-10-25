@@ -15,7 +15,7 @@ import {
   Unlock,
   AlertCircle
 } from 'lucide-react';
-import { Room, RoomEvent, RemoteParticipant, LocalParticipant } from 'livekit-client';
+import { Room, RoomEvent, RemoteParticipant, LocalParticipant, ExternalE2EEKeyProvider } from 'livekit-client';
 import { 
   generateX25519Keypair, 
   deriveSharedSecret, 
@@ -56,6 +56,7 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
   const [myKeypair, setMyKeypair] = useState<{ publicKey: Uint8Array; privateKey: CryptoKey } | null>(null);
   const [peerPublicKey, setPeerPublicKey] = useState<Uint8Array | null>(null);
   const [keyIndex, setKeyIndex] = useState(0);
+  const [e2eeKeyProvider, setE2eeKeyProvider] = useState<ExternalE2EEKeyProvider | null>(null);
   const [rekeyTimer, setRekeyTimer] = useState<NodeJS.Timeout | null>(null);
   
   const { showDialog, DialogComponent } = useStyledDialog();
@@ -83,6 +84,18 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
 
   const initializeRoom = async () => {
     try {
+      // Check if we're in a secure context
+      if (!window.isSecureContext) {
+        console.error('Not in secure context - E2EE requires HTTPS or localhost');
+        setE2eeStatus('error');
+        showDialog({
+          title: 'Security Error',
+          message: 'End-to-end encryption requires a secure connection (HTTPS or localhost).',
+          type: 'error'
+        });
+        return;
+      }
+
       // Check E2EE support
       const supportInfo = getE2EESupportInfo();
       if (!supportInfo.insertableStreams || !supportInfo.webCrypto || !supportInfo.x25519) {
@@ -120,10 +133,18 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
       const { token, url } = await tokenResponse.json();
       console.log('Got LiveKit token, URL:', url);
 
-      // Create room instance
+      // Create E2EE key provider
+      const e2eeKeyProvider = new ExternalE2EEKeyProvider();
+      setE2eeKeyProvider(e2eeKeyProvider);
+      
+      // Create room instance with E2EE support
       const roomInstance = new Room({
         adaptiveStream: true,
         dynacast: true,
+        e2ee: {
+          keyProvider: e2eeKeyProvider,
+          worker: new Worker(new URL('livekit-client/e2ee-worker', import.meta.url)),
+        },
         publishDefaults: {
           audioPreset: {
             maxBitrate: 32000,
@@ -317,27 +338,36 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
       const encryptionKey = await hkdf(sharedSecret, roomName, keyIndex);
       console.log('Encryption key derived');
       
-      // Setup SFrame encryption
-      const success = await setupSFrameEncryption(room, encryptionKey, keyIndex);
-      console.log('SFrame setup result:', success);
-      
-      if (success) {
-        setE2eeStatus('ready');
-        console.log('E2EE setup completed successfully');
-        
-        // Clear timeout
-        if (keyExchangeTimeout) {
-          clearTimeout(keyExchangeTimeout);
-          setKeyExchangeTimeout(null);
-        }
-        
-        // Clear sensitive data
-        clearSensitiveData(sharedSecret);
-        clearSensitiveData(encryptionKey);
-      } else {
-        console.log('SFrame setup failed');
+      // Setup SFrame encryption using the key provider
+      if (!e2eeKeyProvider) {
+        console.error('E2EE key provider not found');
         setE2eeStatus('error');
+        return;
       }
+
+      // Set the encryption key
+      await e2eeKeyProvider.setKey(encryptionKey.slice().buffer);
+      console.log('Set encryption key with index:', keyIndex);
+      
+      // Enable E2EE on the room
+      await room.setE2EEEnabled(true);
+      console.log('E2EE enabled on room');
+      
+      // Wait a moment to ensure both sides have set their keys
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      setE2eeStatus('ready');
+      console.log('E2EE setup completed successfully');
+      
+      // Clear timeout
+      if (keyExchangeTimeout) {
+        clearTimeout(keyExchangeTimeout);
+        setKeyExchangeTimeout(null);
+      }
+      
+      // Clear sensitive data
+      clearSensitiveData(sharedSecret);
+      clearSensitiveData(encryptionKey);
     } catch (error) {
       console.error('Failed to complete E2EE setup:', error);
       setE2eeStatus('error');
@@ -386,18 +416,23 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
       const newKeyIndex = keyIndex + 1;
       const encryptionKey = await hkdf(sharedSecret, roomName, newKeyIndex);
       
-      // Setup new encryption
-      const success = await setupSFrameEncryption(room, encryptionKey, newKeyIndex);
-      
-      if (success) {
-        setKeyIndex(newKeyIndex);
-        setPeerPublicKey(newPeerKey);
-        console.log('Rekey completed with key index:', newKeyIndex);
-        
-        // Clear sensitive data
-        clearSensitiveData(sharedSecret);
-        clearSensitiveData(encryptionKey);
+      // Setup new encryption using key provider
+      if (!e2eeKeyProvider) {
+        console.error('E2EE key provider not found during rekey');
+        return;
       }
+
+      // Set the new encryption key
+      await e2eeKeyProvider.setKey(encryptionKey.slice().buffer);
+      console.log('Set new encryption key with index:', newKeyIndex);
+      
+      setKeyIndex(newKeyIndex);
+      setPeerPublicKey(newPeerKey);
+      console.log('Rekey completed with key index:', newKeyIndex);
+      
+      // Clear sensitive data
+      clearSensitiveData(sharedSecret);
+      clearSensitiveData(encryptionKey);
     } catch (error) {
       console.error('Failed to complete rekey:', error);
     }
