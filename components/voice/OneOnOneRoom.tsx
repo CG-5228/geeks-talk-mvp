@@ -49,6 +49,9 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
   const [connectionQuality, setConnectionQuality] = useState<'excellent' | 'good' | 'poor'>('excellent');
   const [keyExchangeTimeout, setKeyExchangeTimeout] = useState<NodeJS.Timeout | null>(null);
   
+  // Debug logging
+  console.log('OneOnOneRoom props:', { roomName, peerId, peerTopics, myUserId: session?.user?.id });
+  
   // E2EE state
   const [myKeypair, setMyKeypair] = useState<{ publicKey: Uint8Array; privateKey: CryptoKey } | null>(null);
   const [peerPublicKey, setPeerPublicKey] = useState<Uint8Array | null>(null);
@@ -104,13 +107,18 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
 
   const connectToRoom = async () => {
     try {
+      console.log('Getting LiveKit token for room:', roomName);
+      
       // Get LiveKit token
       const tokenResponse = await fetch(`/api/livekit/token?roomName=${roomName}`);
       if (!tokenResponse.ok) {
-        throw new Error('Failed to get LiveKit token');
+        const errorText = await tokenResponse.text();
+        console.error('Token request failed:', tokenResponse.status, errorText);
+        throw new Error(`Failed to get LiveKit token: ${tokenResponse.status}`);
       }
 
       const { token, url } = await tokenResponse.json();
+      console.log('Got LiveKit token, URL:', url);
 
       // Create room instance
       const roomInstance = new Room({
@@ -127,12 +135,24 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
       // Set up event listeners
       setupRoomEventListeners(roomInstance);
 
+      console.log('Connecting to LiveKit room...');
       // Connect to room
       await roomInstance.connect(url, token);
       
       setRoom(roomInstance);
       roomRef.current = roomInstance;
       setIsConnected(true);
+      console.log('Successfully connected to LiveKit room');
+      
+      // Log current participants
+      console.log('Current participants:', roomInstance.remoteParticipants.size);
+      roomInstance.remoteParticipants.forEach((participant, identity) => {
+        console.log('Remote participant:', identity, 'Expected peer:', peerId);
+        if (identity === peerId) {
+          console.log('✅ Found expected peer in room!');
+          setPeerParticipant(participant);
+        }
+      });
 
       // Wait a moment for connection to stabilize, then start E2EE key exchange
       setTimeout(async () => {
@@ -141,6 +161,19 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
           await startE2EEKeyExchange(roomInstance);
         }
       }, 1000);
+      
+      // Also check for peer after a longer delay in case they're still connecting
+      setTimeout(() => {
+        console.log('Checking for peer participant after 3 seconds...');
+        console.log('Current remote participants:', roomInstance.remoteParticipants.size);
+        roomInstance.remoteParticipants.forEach((participant, identity) => {
+          console.log('Found participant:', identity, 'Expected:', peerId);
+          if (identity === peerId && !peerParticipant) {
+            console.log('✅ Setting peer participant from delayed check');
+            setPeerParticipant(participant);
+          }
+        });
+      }, 3000);
 
     } catch (error) {
       console.error('Failed to connect to room:', error);
@@ -160,16 +193,23 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
     });
 
     roomInstance.on(RoomEvent.ParticipantConnected, (participant: RemoteParticipant) => {
-      console.log('Participant connected:', participant.identity);
-      setPeerParticipant(participant);
+      console.log('Participant connected:', participant.identity, 'Expected peer:', peerId);
+      if (participant.identity === peerId) {
+        console.log('✅ Correct peer connected!');
+        setPeerParticipant(participant);
+      } else {
+        console.log('⚠️ Unexpected participant connected:', participant.identity);
+      }
     });
 
     roomInstance.on(RoomEvent.ParticipantDisconnected, (participant: RemoteParticipant) => {
       console.log('Participant disconnected:', participant.identity);
-      setPeerParticipant(null);
-      // Trigger rekey on participant change
-      if (e2eeStatus === 'ready') {
-        handleRekey();
+      if (participant.identity === peerId) {
+        setPeerParticipant(null);
+        // Trigger rekey on participant change
+        if (e2eeStatus === 'ready') {
+          handleRekey();
+        }
       }
     });
 
