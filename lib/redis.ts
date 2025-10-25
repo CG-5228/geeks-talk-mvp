@@ -191,13 +191,14 @@ export class RedisQueue {
 
   // Atomic match creation (prevents race conditions)
   async createMatch(userId: string, peerId: string, roomName: string, userTopics: string[], peerTopics: string[]): Promise<boolean> {
-    const pipeline = this.redis.pipeline();
+    // Use Redis transaction to ensure atomicity
+    const multi = this.redis.multi();
     
     // Check if either user already has a match
-    pipeline.hexists(`rv:match:${userId}`, 'roomName');
-    pipeline.hexists(`rv:match:${peerId}`, 'roomName');
+    multi.hexists(`rv:match:${userId}`, 'roomName');
+    multi.hexists(`rv:match:${peerId}`, 'roomName');
     
-    const results = await pipeline.exec();
+    const results = await multi.exec();
     if (!results) return false;
 
     const [userIdMatch, peerIdMatch] = results;
@@ -205,14 +206,45 @@ export class RedisQueue {
       return false; // One of the users already has a match
     }
 
-    // Create the match atomically
-    await this.setMatch(userId, peerId, roomName, peerTopics);
+    // Create the match for BOTH users atomically
+    const matchData1: MatchData = {
+      roomName,
+      peerId,
+      peerTopics,
+      ts: Date.now(),
+    };
+
+    const matchData2: MatchData = {
+      roomName,
+      peerId: userId,
+      peerTopics: userTopics,
+      ts: Date.now(),
+    };
+
+    // Use transaction to set both matches and remove from queue atomically
+    const matchMulti = this.redis.multi();
+    
+    // Set match data for both users
+    matchMulti.hset(`rv:match:${userId}`, matchData1);
+    matchMulti.hset(`rv:match:${peerId}`, matchData2);
+    
+    // Set TTL for both matches
+    matchMulti.expire(`rv:match:${userId}`, 600); // 10 minutes
+    matchMulti.expire(`rv:match:${peerId}`, 600); // 10 minutes
     
     // Remove both users from queue
-    await this.dequeue(userId);
-    await this.dequeue(peerId);
-
-    return true;
+    const queueEntries = await this.getQueue();
+    const filteredEntries = queueEntries.filter(entry => 
+      entry.userId !== userId && entry.userId !== peerId
+    );
+    
+    matchMulti.del('rv:queue');
+    if (filteredEntries.length > 0) {
+      matchMulti.lpush('rv:queue', ...filteredEntries.map(entry => JSON.stringify(entry)));
+    }
+    
+    const matchResults = await matchMulti.exec();
+    return matchResults !== null;
   }
 
   // Cleanup expired data

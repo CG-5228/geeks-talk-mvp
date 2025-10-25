@@ -51,6 +51,8 @@ export async function POST(request: NextRequest) {
     const bestMatch = await redisQueue.findBestMatch(userId, topics);
     
     if (bestMatch) {
+      console.log(`Found match for user ${userId} with ${bestMatch.userId}`);
+      
       // Create match atomically
       const roomName = `1v1-${nanoid()}`;
       const matchCreated = await redisQueue.createMatch(
@@ -62,13 +64,18 @@ export async function POST(request: NextRequest) {
       );
 
       if (matchCreated) {
+        console.log(`Match created successfully: ${userId} <-> ${bestMatch.userId} in room ${roomName}`);
         return NextResponse.json({
           matched: true,
           roomName,
           peerId: bestMatch.userId,
           peerTopics: bestMatch.topics,
         });
+      } else {
+        console.log(`Failed to create match between ${userId} and ${bestMatch.userId}`);
       }
+    } else {
+      console.log(`No match found for user ${userId} with topics:`, topics);
     }
 
     // No immediate match found
@@ -96,6 +103,7 @@ export async function GET(request: NextRequest) {
     const match = await redisQueue.getMatch(userId);
 
     if (match) {
+      console.log(`Match found for user ${userId}:`, match);
       return NextResponse.json({
         matched: true,
         roomName: match.roomName,
@@ -104,6 +112,7 @@ export async function GET(request: NextRequest) {
       });
     }
 
+    console.log(`No match found for user ${userId}`);
     return NextResponse.json({ matched: false });
 
   } catch (error) {

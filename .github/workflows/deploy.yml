@@ -74,6 +74,10 @@ jobs:
             cd /var/www/geekstalk/releases/$ts
             npx prisma migrate deploy || echo "Migrations already applied or database schema exists"
 
+            # Ensure Redis is running (required for E2EE 1v1 random voice chat)
+            sudo systemctl start redis-server || echo "Redis already running"
+            redis-cli ping || echo "Redis connection test failed"
+
             # Atomically switch to new release
             ln -sfn /var/www/geekstalk/releases/$ts /var/www/geekstalk/current
 
