@@ -22,6 +22,14 @@ export async function generateLiveKitToken({
   const apiKey = process.env.LIVEKIT_API_KEY;
   const apiSecret = process.env.LIVEKIT_API_SECRET;
 
+  console.log('🔍 LiveKit token generation debug:', {
+    apiKey: apiKey ? `${apiKey.substring(0, 8)}...` : 'undefined',
+    apiSecret: apiSecret ? `${apiSecret.substring(0, 8)}...` : 'undefined',
+    roomName,
+    participantIdentity,
+    participantName
+  });
+
   if (!apiKey || !apiSecret) {
     // For development, return a mock token
     console.error('❌ LiveKit API key and secret not configured!');
@@ -34,21 +42,28 @@ export async function generateLiveKitToken({
     throw new Error('LiveKit credentials not configured. Please set LIVEKIT_API_KEY and LIVEKIT_API_SECRET environment variables.');
   }
 
-  const token = new AccessToken(apiKey, apiSecret, {
-    identity: participantIdentity,
-    name: participantName,
-    metadata,
-  });
+  try {
+    const token = new AccessToken(apiKey, apiSecret, {
+      identity: participantIdentity,
+      name: participantName,
+      metadata,
+    });
 
-  token.addGrant({
-    room: roomName,
-    roomJoin: true,
-    canPublish,
-    canSubscribe,
-    canPublishData,
-  });
+    token.addGrant({
+      room: roomName,
+      roomJoin: true,
+      canPublish,
+      canSubscribe,
+      canPublishData,
+    });
 
-  return await token.toJwt();
+    const jwt = await token.toJwt();
+    console.log('✅ LiveKit token generated successfully');
+    return jwt;
+  } catch (error) {
+    console.error('❌ Error generating LiveKit token:', error);
+    throw new Error(`Failed to generate LiveKit token: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
 }
 
 export function generateVoiceRoomName(channelId: string, groupId: string): string {
