@@ -123,6 +123,14 @@ export async function POST(request: NextRequest) {
       );
 
       if (matchCreated) {
+        console.log('Match created successfully:', {
+          myUserId: userId,
+          peerId: bestMatch.userId,
+          roomName,
+          myTopics: topics,
+          peerTopics: bestMatch.topics
+        });
+        
         return NextResponse.json({
           matched: true,
           roomName,

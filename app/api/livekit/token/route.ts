@@ -78,6 +78,12 @@ export async function GET(request: NextRequest) {
     }
 
     // Generate short-lived token (5 minutes max)
+    console.log('Generating LiveKit token for:', {
+      roomName,
+      participantIdentity: session.user.id,
+      participantName: session.user.name || 'Anonymous'
+    });
+    
     const token = await generateLiveKitToken({
       roomName,
       participantName: session.user.name || 'Anonymous',

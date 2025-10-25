@@ -51,6 +51,7 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
   
   // Debug logging
   console.log('OneOnOneRoom props:', { roomName, peerId, peerTopics, myUserId: session?.user?.id });
+  console.log('Expected peer ID:', peerId, 'My user ID:', session?.user?.id);
   
   // E2EE state
   const [myKeypair, setMyKeypair] = useState<{ publicKey: Uint8Array; privateKey: CryptoKey } | null>(null);
@@ -171,6 +172,9 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
       console.log('Current participants:', roomInstance.remoteParticipants.size);
       roomInstance.remoteParticipants.forEach((participant, identity) => {
         console.log('Remote participant:', identity, 'Expected peer:', peerId);
+        console.log('Participant identity type:', typeof identity);
+        console.log('Expected peer ID type:', typeof peerId);
+        console.log('Identity match:', identity === peerId);
         if (identity === peerId) {
           console.log('✅ Found expected peer in room!');
           setPeerParticipant(participant);
@@ -236,6 +240,9 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
 
     roomInstance.on(RoomEvent.ParticipantConnected, (participant: RemoteParticipant) => {
       console.log('Participant connected:', participant.identity, 'Expected peer:', peerId);
+      console.log('Participant identity type:', typeof participant.identity);
+      console.log('Expected peer ID type:', typeof peerId);
+      console.log('Identity match:', participant.identity === peerId);
       if (participant.identity === peerId) {
         console.log('✅ Correct peer connected!');
         setPeerParticipant(participant);
