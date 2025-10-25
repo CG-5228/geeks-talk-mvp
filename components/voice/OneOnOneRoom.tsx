@@ -260,6 +260,21 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
     roomInstance.on(RoomEvent.Connected, () => {
       console.log('Connected to room');
       setIsConnected(true);
+      
+      // Debug: Check if we have audio tracks
+      console.log('Local audio tracks:', roomInstance.localParticipant.audioTrackPublications.size);
+      console.log('Remote participants:', roomInstance.remoteParticipants.size);
+      
+      // Check if we need to enable microphone
+      if (e2eeStatus === 'ready' && !isMicEnabled) {
+        console.log('E2EE ready, enabling microphone after connection...');
+        roomInstance.localParticipant.setMicrophoneEnabled(true).then(() => {
+          setIsMicEnabled(true);
+          console.log('Microphone enabled after connection');
+        }).catch(error => {
+          console.error('Failed to enable microphone after connection:', error);
+        });
+      }
     });
 
     roomInstance.on(RoomEvent.Disconnected, () => {
@@ -275,6 +290,12 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
       if (participant.identity === peerId) {
         console.log('✅ Correct peer connected!');
         setPeerParticipant(participant);
+        
+        // Debug: Check participant's audio tracks
+        console.log('Peer audio tracks:', participant.audioTrackPublications.size);
+        participant.audioTrackPublications.forEach((publication, key) => {
+          console.log('Audio track publication:', key, 'muted:', publication.isMuted, 'subscribed:', publication.isSubscribed);
+        });
       } else {
         console.log('⚠️ Unexpected participant connected:', participant.identity);
       }
@@ -314,7 +335,7 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
     // Monitor audio levels
     roomInstance.on(RoomEvent.TrackSubscribed, (track, publication, participant) => {
       if (track.kind === 'audio' && participant?.identity === peerId) {
-        console.log('Audio track subscribed for peer');
+        console.log('Audio track subscribed for peer:', participant.identity);
         setPeerMicEnabled(true);
         
         // Monitor audio levels for peer
@@ -328,16 +349,20 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
           analyser.smoothingTimeConstant = 0.8;
           const dataArray = new Uint8Array(analyser.frequencyBinCount);
           
+          let animationId: number;
           const updateAudioLevel = () => {
             if (track.mediaStreamTrack.readyState === 'live') {
               analyser.getByteFrequencyData(dataArray);
               const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
               const normalizedLevel = average / 255;
               setPeerAudioLevel(normalizedLevel);
-              requestAnimationFrame(updateAudioLevel);
+              animationId = requestAnimationFrame(updateAudioLevel);
             }
           };
           updateAudioLevel();
+          
+          // Store animation ID for cleanup
+          (track as any)._animationId = animationId;
         } catch (error) {
           console.error('Failed to monitor peer audio:', error);
         }
@@ -349,6 +374,11 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
         console.log('Audio track unsubscribed for peer');
         setPeerMicEnabled(false);
         setPeerAudioLevel(0);
+        
+        // Clean up animation frame
+        if ((track as any)._animationId) {
+          cancelAnimationFrame((track as any)._animationId);
+        }
       }
     });
 
@@ -587,7 +617,7 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
     };
   }, [isMicEnabled, room]);
 
-  // Periodic check for peer microphone state
+  // Periodic check for peer microphone state and audio levels
   useEffect(() => {
     if (peerParticipant && room) {
       const checkPeerMicState = () => {
@@ -599,6 +629,25 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
           
           if (isMuted) {
             setPeerAudioLevel(0);
+          } else {
+            // Try to get audio level from the track
+            try {
+              if (audioTrack.track && audioTrack.track.mediaStreamTrack) {
+                const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+                const analyser = audioContext.createAnalyser();
+                const source = audioContext.createMediaStreamSource(new MediaStream([audioTrack.track.mediaStreamTrack]));
+                source.connect(analyser);
+                
+                analyser.fftSize = 256;
+                const dataArray = new Uint8Array(analyser.frequencyBinCount);
+                analyser.getByteFrequencyData(dataArray);
+                const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
+                const normalizedLevel = average / 255;
+                setPeerAudioLevel(normalizedLevel);
+              }
+            } catch (error) {
+              console.error('Failed to get peer audio level:', error);
+            }
           }
         } else {
           setPeerMicEnabled(false);
@@ -609,8 +658,8 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
       // Check immediately
       checkPeerMicState();
       
-      // Check every 2 seconds
-      const interval = setInterval(checkPeerMicState, 2000);
+      // Check every 1 second for more responsive updates
+      const interval = setInterval(checkPeerMicState, 1000);
       
       return () => clearInterval(interval);
     }
@@ -752,15 +801,24 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
   };
 
   const toggleMic = async () => {
-    if (!room) return;
+    if (!room) {
+      console.log('Cannot toggle mic - no room');
+      return;
+    }
 
     try {
+      console.log('Toggling microphone. Current state:', isMicEnabled);
+      
       if (isMicEnabled) {
+        console.log('Disabling microphone...');
         await room.localParticipant.setMicrophoneEnabled(false);
         setIsMicEnabled(false);
+        console.log('Microphone disabled');
       } else {
+        console.log('Enabling microphone...');
         await room.localParticipant.setMicrophoneEnabled(true);
         setIsMicEnabled(true);
+        console.log('Microphone enabled');
       }
     } catch (error) {
       console.error('Failed to toggle microphone:', error);
