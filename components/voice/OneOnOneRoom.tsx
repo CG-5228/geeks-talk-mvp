@@ -13,7 +13,8 @@ import {
   Users,
   Lock,
   Unlock,
-  AlertCircle
+  AlertCircle,
+  Activity
 } from 'lucide-react';
 import { Room, RoomEvent, RemoteParticipant, LocalParticipant, ExternalE2EEKeyProvider } from 'livekit-client';
 import { 
@@ -38,6 +39,30 @@ interface OneOnOneRoomProps {
 
 type E2EEStatus = 'initializing' | 'exchanging' | 'ready' | 'error' | 'unsupported';
 
+// Audio Waveform Component
+const AudioWaveform = ({ level, isActive }: { level: number; isActive: boolean }) => {
+  const bars = Array.from({ length: 5 }, (_, i) => {
+    const height = isActive ? Math.max(2, (level * 20) * (0.5 + Math.random() * 0.5)) : 2;
+    return (
+      <div
+        key={i}
+        className="bg-green-400 rounded-sm transition-all duration-75"
+        style={{
+          width: '2px',
+          height: `${height}px`,
+          opacity: isActive ? 0.8 : 0.3
+        }}
+      />
+    );
+  });
+
+  return (
+    <div className="flex items-center gap-1 h-4">
+      {bars}
+    </div>
+  );
+};
+
 export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: OneOnOneRoomProps) {
   const { data: session } = useSession();
   const [room, setRoom] = useState<Room | null>(null);
@@ -60,6 +85,9 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
   const [e2eeKeyProvider, setE2eeKeyProvider] = useState<ExternalE2EEKeyProvider | null>(null);
   const [rekeyTimer, setRekeyTimer] = useState<NodeJS.Timeout | null>(null);
   const [sentMyPublicKey, setSentMyPublicKey] = useState(false);
+  const [peerMicEnabled, setPeerMicEnabled] = useState(false);
+  const [peerAudioLevel, setPeerAudioLevel] = useState(0);
+  const [myAudioLevel, setMyAudioLevel] = useState(0);
   
   const { showDialog, DialogComponent } = useStyledDialog();
   const roomRef = useRef<Room | null>(null);
@@ -282,6 +310,71 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
         setConnectionQuality(qualityMap[quality] || 'poor');
       }
     });
+
+    // Monitor audio levels
+    roomInstance.on(RoomEvent.TrackSubscribed, (track, publication, participant) => {
+      if (track.kind === 'audio' && participant?.identity === peerId) {
+        console.log('Audio track subscribed for peer');
+        setPeerMicEnabled(true);
+        
+        // Monitor audio levels for peer
+        const audioElement = track.attach();
+        if (audioElement) {
+          const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+          const analyser = audioContext.createAnalyser();
+          const source = audioContext.createMediaStreamSource(new MediaStream([track.mediaStreamTrack]));
+          source.connect(analyser);
+          
+          analyser.fftSize = 256;
+          const dataArray = new Uint8Array(analyser.frequencyBinCount);
+          
+          const updateAudioLevel = () => {
+            analyser.getByteFrequencyData(dataArray);
+            const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
+            setPeerAudioLevel(average / 255);
+            requestAnimationFrame(updateAudioLevel);
+          };
+          updateAudioLevel();
+        }
+      }
+    });
+
+    roomInstance.on(RoomEvent.TrackUnsubscribed, (track, publication, participant) => {
+      if (track.kind === 'audio' && participant?.identity === peerId) {
+        console.log('Audio track unsubscribed for peer');
+        setPeerMicEnabled(false);
+        setPeerAudioLevel(0);
+      }
+    });
+
+    // Monitor local audio level
+    const monitorLocalAudio = () => {
+      if (roomInstance && roomInstance.localParticipant.audioTrackPublications.size > 0) {
+        const audioTrack = Array.from(roomInstance.localParticipant.audioTrackPublications.values())[0];
+        if (audioTrack.track) {
+          const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+          const analyser = audioContext.createAnalyser();
+          const source = audioContext.createMediaStreamSource(new MediaStream([audioTrack.track.mediaStreamTrack]));
+          source.connect(analyser);
+          
+          analyser.fftSize = 256;
+          const dataArray = new Uint8Array(analyser.frequencyBinCount);
+          
+          const updateLocalAudioLevel = () => {
+            analyser.getByteFrequencyData(dataArray);
+            const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
+            setMyAudioLevel(average / 255);
+            requestAnimationFrame(updateLocalAudioLevel);
+          };
+          updateLocalAudioLevel();
+        }
+      }
+    };
+
+    // Start monitoring local audio when mic is enabled
+    if (isMicEnabled) {
+      monitorLocalAudio();
+    }
   };
 
   const startE2EEKeyExchange = async (roomInstance: Room) => {
@@ -417,6 +510,40 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
       toggleMic();
     }
   }, [e2eeStatus, room, isMicEnabled]);
+
+  // Monitor local audio levels when mic is enabled
+  useEffect(() => {
+    if (isMicEnabled && room) {
+      const monitorLocalAudio = () => {
+        if (room && room.localParticipant.audioTrackPublications.size > 0) {
+          const audioTrack = Array.from(room.localParticipant.audioTrackPublications.values())[0];
+          if (audioTrack.track) {
+            const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+            const analyser = audioContext.createAnalyser();
+            const source = audioContext.createMediaStreamSource(new MediaStream([audioTrack.track.mediaStreamTrack]));
+            source.connect(analyser);
+            
+            analyser.fftSize = 256;
+            const dataArray = new Uint8Array(analyser.frequencyBinCount);
+            
+            const updateLocalAudioLevel = () => {
+              if (isMicEnabled && room) {
+                analyser.getByteFrequencyData(dataArray);
+                const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
+                setMyAudioLevel(average / 255);
+                requestAnimationFrame(updateLocalAudioLevel);
+              }
+            };
+            updateLocalAudioLevel();
+          }
+        }
+      };
+      
+      monitorLocalAudio();
+    } else {
+      setMyAudioLevel(0);
+    }
+  }, [isMicEnabled, room]);
 
   const completeE2EESetup = async () => {
     try {
@@ -734,9 +861,23 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
             <div className="w-12 h-12 rounded-full bg-green-500/20 flex items-center justify-center">
               <Users className="w-6 h-6 text-green-400" />
             </div>
-            <div>
-              <p className="font-medium text-white">{session?.user?.name || 'You'}</p>
-              <p className="text-sm text-gray-400">Connected</p>
+            <div className="flex-1">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="font-medium text-white">{session?.user?.name || 'You'}</p>
+                  <p className="text-sm text-gray-400">Connected</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  {isMicEnabled ? (
+                    <div className="flex items-center gap-2">
+                      <Mic className="w-4 h-4 text-green-400" />
+                      <AudioWaveform level={myAudioLevel} isActive={isMicEnabled && myAudioLevel > 0.1} />
+                    </div>
+                  ) : (
+                    <MicOff className="w-4 h-4 text-gray-400" />
+                  )}
+                </div>
+              </div>
             </div>
           </div>
 
@@ -746,9 +887,23 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
               <div className="w-12 h-12 rounded-full bg-primary/20 flex items-center justify-center">
                 <Users className="w-6 h-6 text-primary" />
               </div>
-              <div>
-                <p className="font-medium text-white">Anonymous User</p>
-                <p className="text-sm text-gray-400">Connected</p>
+              <div className="flex-1">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="font-medium text-white">Anonymous User</p>
+                    <p className="text-sm text-gray-400">Connected</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {peerMicEnabled ? (
+                      <div className="flex items-center gap-2">
+                        <Mic className="w-4 h-4 text-green-400" />
+                        <AudioWaveform level={peerAudioLevel} isActive={peerMicEnabled && peerAudioLevel > 0.1} />
+                      </div>
+                    ) : (
+                      <MicOff className="w-4 h-4 text-gray-400" />
+                    )}
+                  </div>
+                </div>
               </div>
             </div>
           ) : (
@@ -756,9 +911,14 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
               <div className="w-12 h-12 rounded-full bg-white/10 flex items-center justify-center">
                 <Users className="w-6 h-6 text-white/50" />
               </div>
-              <div>
-                <p className="font-medium text-white">Waiting...</p>
-                <p className="text-sm text-gray-400">No participant</p>
+              <div className="flex-1">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="font-medium text-white">Waiting...</p>
+                    <p className="text-sm text-gray-400">No participant</p>
+                  </div>
+                  <MicOff className="w-4 h-4 text-gray-400" />
+                </div>
               </div>
             </div>
           )}
