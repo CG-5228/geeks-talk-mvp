@@ -20,7 +20,7 @@ export async function generateLiveKitToken({
   metadata,
 }: LiveKitTokenOptions): Promise<string> {
   const apiKey = process.env.LIVEKIT_API_KEY;
-  const apiSecret = process.env.LIVEKIT_API_SECRET;
+  const apiSecret = process.env.LIVEKIT_SECRET;
 
   console.log('🔍 LiveKit token generation debug:', {
     apiKey: apiKey ? `${apiKey.substring(0, 8)}...` : 'undefined',

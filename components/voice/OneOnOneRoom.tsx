@@ -59,6 +59,7 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
   const [keyIndex, setKeyIndex] = useState(0);
   const [e2eeKeyProvider, setE2eeKeyProvider] = useState<ExternalE2EEKeyProvider | null>(null);
   const [rekeyTimer, setRekeyTimer] = useState<NodeJS.Timeout | null>(null);
+  const [sentMyPublicKey, setSentMyPublicKey] = useState(false);
   
   const { showDialog, DialogComponent } = useStyledDialog();
   const roomRef = useRef<Room | null>(null);
@@ -265,7 +266,7 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
     roomInstance.on(RoomEvent.DataReceived, (payload: Uint8Array, participant?: RemoteParticipant) => {
       console.log('Data received from:', participant?.identity, 'expected peer:', peerId);
       if (participant?.identity === peerId) {
-        handleDataReceived(payload);
+        handleDataReceived(payload, roomInstance);
       }
     });
 
@@ -287,21 +288,43 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
     try {
       setE2eeStatus('exchanging');
       console.log('Starting E2EE key exchange...');
+      console.log('My keypair available:', !!myKeypair);
 
-      // Send our public key
-      if (myKeypair) {
-        const publicKeyData = {
-          type: 'e2ee-pubkey',
-          publicKey: arrayBufferToBase64(myKeypair.publicKey),
-          timestamp: Date.now(),
-        };
+      // If keypair is not available, generate it now
+      let currentKeypair = myKeypair;
+      if (!currentKeypair) {
+        console.log('Generating keypair for key exchange...');
+        currentKeypair = await generateX25519Keypair();
+        setMyKeypair(currentKeypair);
+        console.log('Keypair generated and set');
+      }
 
-        const encoder = new TextEncoder();
-        await roomInstance.localParticipant.publishData(
-          encoder.encode(JSON.stringify(publicKeyData)),
-          { reliable: true }
-        );
-        console.log('Sent public key to peer');
+      // Determine who initiates based on user ID comparison (alphabetical order)
+      const myUserId = session?.user?.id;
+      const shouldInitiate = myUserId && peerId && myUserId < peerId;
+      console.log('Should initiate key exchange:', shouldInitiate, 'myUserId:', myUserId, 'peerId:', peerId);
+
+      if (shouldInitiate) {
+        // Send our public key first
+        if (currentKeypair) {
+          const publicKeyData = {
+            type: 'e2ee-pubkey',
+            publicKey: arrayBufferToBase64(currentKeypair.publicKey),
+            timestamp: Date.now(),
+          };
+
+          const encoder = new TextEncoder();
+          await roomInstance.localParticipant.publishData(
+            encoder.encode(JSON.stringify(publicKeyData)),
+            { reliable: true }
+          );
+          console.log('Sent public key to peer (initiator)');
+          setSentMyPublicKey(true);
+        } else {
+          console.log('No keypair available for initiator');
+        }
+      } else {
+        console.log('Waiting for peer to send public key first...');
       }
 
       // Set up a timeout for key exchange
@@ -319,17 +342,56 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
     }
   };
 
-  const handleDataReceived = (payload: Uint8Array) => {
+  const handleDataReceived = async (payload: Uint8Array, roomInstance?: Room) => {
     try {
       const decoder = new TextDecoder();
       const data = JSON.parse(decoder.decode(payload));
       
-      console.log('Received data:', data.type);
+      console.log('Received data:', data.type, 'from peer');
       
       if (data.type === 'e2ee-pubkey' && !peerPublicKey) {
         console.log('Received peer public key');
         const peerKey = base64ToArrayBuffer(data.publicKey);
         setPeerPublicKey(new Uint8Array(peerKey));
+        
+        // If we haven't sent our public key yet, send it now
+        if (!sentMyPublicKey) {
+          // Ensure we have a keypair
+          let currentKeypair = myKeypair;
+          if (!currentKeypair) {
+            console.log('Generating keypair for response...');
+            currentKeypair = await generateX25519Keypair();
+            setMyKeypair(currentKeypair);
+          }
+          
+          if (currentKeypair) {
+            // Use the room instance passed to the function, or fall back to the state
+            const roomToUse = roomInstance || room;
+            
+            if (roomToUse) {
+              console.log('Sending our public key in response...');
+              const publicKeyData = {
+                type: 'e2ee-pubkey',
+                publicKey: arrayBufferToBase64(currentKeypair.publicKey),
+                timestamp: Date.now(),
+              };
+
+              const encoder = new TextEncoder();
+              await roomToUse.localParticipant.publishData(
+                encoder.encode(JSON.stringify(publicKeyData)),
+                { reliable: true }
+              );
+              console.log('Sent our public key in response');
+              setSentMyPublicKey(true);
+            } else {
+              console.log('No room instance available for sending response');
+            }
+          } else {
+            console.log('Cannot send response key - no keypair available');
+          }
+        } else {
+          console.log('Already sent our public key');
+        }
       } else if (data.type === 'e2ee-rekey-pubkey') {
         // Handle rekey
         console.log('Received rekey public key');
@@ -347,6 +409,14 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
       completeE2EESetup();
     }
   }, [myKeypair, peerPublicKey, room, e2eeStatus]);
+
+  // Auto-enable microphone when E2EE is ready
+  useEffect(() => {
+    if (e2eeStatus === 'ready' && room && !isMicEnabled) {
+      console.log('E2EE ready, enabling microphone...');
+      toggleMic();
+    }
+  }, [e2eeStatus, room, isMicEnabled]);
 
   const completeE2EESetup = async () => {
     try {
@@ -656,10 +726,22 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
 
       {/* Right Sidebar - Participant Info */}
       <div className="w-80 bg-black/20 backdrop-blur-xl border-l border-white/10 p-6">
-        <h3 className="text-lg font-semibold text-white mb-4">Participant</h3>
+        <h3 className="text-lg font-semibold text-white mb-4">Participants</h3>
         
-        {peerParticipant ? (
-          <div className="space-y-4">
+        <div className="space-y-4">
+          {/* Current User */}
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-full bg-green-500/20 flex items-center justify-center">
+              <Users className="w-6 h-6 text-green-400" />
+            </div>
+            <div>
+              <p className="font-medium text-white">{session?.user?.name || 'You'}</p>
+              <p className="text-sm text-gray-400">Connected</p>
+            </div>
+          </div>
+
+          {/* Peer User */}
+          {peerParticipant ? (
             <div className="flex items-center gap-3">
               <div className="w-12 h-12 rounded-full bg-primary/20 flex items-center justify-center">
                 <Users className="w-6 h-6 text-primary" />
@@ -669,31 +751,35 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
                 <p className="text-sm text-gray-400">Connected</p>
               </div>
             </div>
-
-            {peerTopics.length > 0 && (
-              <div>
-                <p className="text-sm font-medium text-gray-300 mb-2">Shared Topics</p>
-                <div className="flex flex-wrap gap-2">
-                  {peerTopics.map((topic) => (
-                    <span
-                      key={topic}
-                      className="px-2 py-1 bg-primary/20 text-primary rounded text-xs"
-                    >
-                      {topic}
-                    </span>
-                  ))}
-                </div>
+          ) : (
+            <div className="flex items-center gap-3 opacity-50">
+              <div className="w-12 h-12 rounded-full bg-white/10 flex items-center justify-center">
+                <Users className="w-6 h-6 text-white/50" />
               </div>
-            )}
-          </div>
-        ) : (
-          <div className="text-center py-8">
-            <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-white/10 flex items-center justify-center">
-              <Users className="w-8 h-8 text-white/50" />
+              <div>
+                <p className="font-medium text-white">Waiting...</p>
+                <p className="text-sm text-gray-400">No participant</p>
+              </div>
             </div>
-            <p className="text-gray-400">Waiting for participant...</p>
-          </div>
-        )}
+          )}
+
+          {/* Shared Topics */}
+          {peerTopics.length > 0 && (
+            <div className="mt-6">
+              <p className="text-sm font-medium text-gray-300 mb-2">Shared Topics</p>
+              <div className="flex flex-wrap gap-2">
+                {peerTopics.map((topic) => (
+                  <span
+                    key={topic}
+                    className="px-2 py-1 bg-primary/20 text-primary rounded text-xs"
+                  >
+                    {topic}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       <DialogComponent />
