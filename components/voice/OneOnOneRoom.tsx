@@ -318,23 +318,28 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
         setPeerMicEnabled(true);
         
         // Monitor audio levels for peer
-        const audioElement = track.attach();
-        if (audioElement) {
+        try {
           const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
           const analyser = audioContext.createAnalyser();
           const source = audioContext.createMediaStreamSource(new MediaStream([track.mediaStreamTrack]));
           source.connect(analyser);
           
           analyser.fftSize = 256;
+          analyser.smoothingTimeConstant = 0.8;
           const dataArray = new Uint8Array(analyser.frequencyBinCount);
           
           const updateAudioLevel = () => {
-            analyser.getByteFrequencyData(dataArray);
-            const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
-            setPeerAudioLevel(average / 255);
-            requestAnimationFrame(updateAudioLevel);
+            if (track.mediaStreamTrack.readyState === 'live') {
+              analyser.getByteFrequencyData(dataArray);
+              const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
+              const normalizedLevel = average / 255;
+              setPeerAudioLevel(normalizedLevel);
+              requestAnimationFrame(updateAudioLevel);
+            }
           };
           updateAudioLevel();
+        } catch (error) {
+          console.error('Failed to monitor peer audio:', error);
         }
       }
     });
@@ -344,6 +349,22 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
         console.log('Audio track unsubscribed for peer');
         setPeerMicEnabled(false);
         setPeerAudioLevel(0);
+      }
+    });
+
+    // Monitor track mute/unmute events
+    roomInstance.on(RoomEvent.TrackMuted, (publication, participant) => {
+      if (publication.kind === 'audio' && participant?.identity === peerId) {
+        console.log('Peer audio track muted');
+        setPeerMicEnabled(false);
+        setPeerAudioLevel(0);
+      }
+    });
+
+    roomInstance.on(RoomEvent.TrackUnmuted, (publication, participant) => {
+      if (publication.kind === 'audio' && participant?.identity === peerId) {
+        console.log('Peer audio track unmuted');
+        setPeerMicEnabled(true);
       }
     });
 
@@ -507,34 +528,49 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
   useEffect(() => {
     if (e2eeStatus === 'ready' && room && !isMicEnabled) {
       console.log('E2EE ready, enabling microphone...');
-      toggleMic();
+      const enableMic = async () => {
+        try {
+          await room.localParticipant.setMicrophoneEnabled(true);
+          setIsMicEnabled(true);
+        } catch (error) {
+          console.error('Failed to enable microphone:', error);
+        }
+      };
+      enableMic();
     }
   }, [e2eeStatus, room, isMicEnabled]);
 
   // Monitor local audio levels when mic is enabled
   useEffect(() => {
+    let animationFrameId: number;
+    
     if (isMicEnabled && room) {
       const monitorLocalAudio = () => {
         if (room && room.localParticipant.audioTrackPublications.size > 0) {
           const audioTrack = Array.from(room.localParticipant.audioTrackPublications.values())[0];
-          if (audioTrack.track) {
-            const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-            const analyser = audioContext.createAnalyser();
-            const source = audioContext.createMediaStreamSource(new MediaStream([audioTrack.track.mediaStreamTrack]));
-            source.connect(analyser);
-            
-            analyser.fftSize = 256;
-            const dataArray = new Uint8Array(analyser.frequencyBinCount);
-            
-            const updateLocalAudioLevel = () => {
-              if (isMicEnabled && room) {
-                analyser.getByteFrequencyData(dataArray);
-                const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
-                setMyAudioLevel(average / 255);
-                requestAnimationFrame(updateLocalAudioLevel);
-              }
-            };
-            updateLocalAudioLevel();
+          if (audioTrack.track && audioTrack.track.mediaStreamTrack) {
+            try {
+              const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+              const analyser = audioContext.createAnalyser();
+              const source = audioContext.createMediaStreamSource(new MediaStream([audioTrack.track.mediaStreamTrack]));
+              source.connect(analyser);
+              
+              analyser.fftSize = 256;
+              analyser.smoothingTimeConstant = 0.8;
+              const dataArray = new Uint8Array(analyser.frequencyBinCount);
+              
+              const updateLocalAudioLevel = () => {
+                if (isMicEnabled && room && audioTrack.track.mediaStreamTrack.readyState === 'live') {
+                  analyser.getByteFrequencyData(dataArray);
+                  const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
+                  setMyAudioLevel(average / 255);
+                  animationFrameId = requestAnimationFrame(updateLocalAudioLevel);
+                }
+              };
+              updateLocalAudioLevel();
+            } catch (error) {
+              console.error('Failed to monitor local audio:', error);
+            }
           }
         }
       };
@@ -543,7 +579,42 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
     } else {
       setMyAudioLevel(0);
     }
+    
+    return () => {
+      if (animationFrameId) {
+        cancelAnimationFrame(animationFrameId);
+      }
+    };
   }, [isMicEnabled, room]);
+
+  // Periodic check for peer microphone state
+  useEffect(() => {
+    if (peerParticipant && room) {
+      const checkPeerMicState = () => {
+        const audioTracks = Array.from(peerParticipant.audioTrackPublications.values());
+        if (audioTracks.length > 0) {
+          const audioTrack = audioTracks[0];
+          const isMuted = audioTrack.isMuted;
+          setPeerMicEnabled(!isMuted);
+          
+          if (isMuted) {
+            setPeerAudioLevel(0);
+          }
+        } else {
+          setPeerMicEnabled(false);
+          setPeerAudioLevel(0);
+        }
+      };
+      
+      // Check immediately
+      checkPeerMicState();
+      
+      // Check every 2 seconds
+      const interval = setInterval(checkPeerMicState, 2000);
+      
+      return () => clearInterval(interval);
+    }
+  }, [peerParticipant, room]);
 
   const completeE2EESetup = async () => {
     try {
