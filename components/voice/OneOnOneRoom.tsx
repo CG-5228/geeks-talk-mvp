@@ -914,18 +914,35 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
       {/* Left Sidebar - Voice Controls */}
       <div className="w-80 bg-black/20 backdrop-blur-xl border-r border-white/10 flex flex-col">
         {/* Header */}
-        <div className="p-6 border-b border-white/10">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-xl font-semibold text-white">Voice Chat</h2>
-            <div className="flex items-center gap-2">
+        <div className="p-6 border-b border-white/10 bg-gradient-to-r from-black/10 to-transparent">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-green-500/20 to-green-600/20 flex items-center justify-center border border-green-500/30">
+                <Mic className="w-4 h-4 text-green-400" />
+              </div>
+              <div>
+                <h2 className="text-xl font-semibold text-white">Voice Chat</h2>
+                <div className="text-xs text-gray-400">
+                  {roomName.replace('1v1-', '')}
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/30 border border-white/10">
               <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`} />
-              <span className="text-sm text-gray-300">
+              <span className="text-sm font-medium text-gray-300">
                 {isConnected ? 'Connected' : 'Disconnected'}
               </span>
             </div>
           </div>
-          <div className="text-xs text-gray-400">
-            {roomName.replace('1v1-', '')}
+          <div className="flex items-center gap-4 text-xs text-gray-400">
+            <div className="flex items-center gap-1">
+              <div className="w-1.5 h-1.5 rounded-full bg-blue-400" />
+              <span>E2EE Ready</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <div className={`w-1.5 h-1.5 rounded-full ${isMicEnabled ? 'bg-green-400' : 'bg-gray-500'}`} />
+              <span>{isMicEnabled ? 'Mic Active' : 'Mic Muted'}</span>
+            </div>
           </div>
         </div>
 
@@ -1037,10 +1054,23 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
 
       {/* Right Sidebar - Participant Info */}
       <div className="w-80 bg-black/20 backdrop-blur-xl border-l border-white/10 p-6">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-semibold text-white">Participants</h3>
-          <div className="text-xs text-gray-400">
-            {peerParticipant ? '2 online' : '1 online'}
+        <div className="flex items-center justify-between mb-4 p-4 bg-gradient-to-r from-black/10 to-transparent rounded-lg border border-white/5">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500/20 to-blue-600/20 flex items-center justify-center border border-blue-500/30">
+              <Users className="w-4 h-4 text-blue-400" />
+            </div>
+            <div>
+              <h3 className="text-lg font-semibold text-white">Participants</h3>
+              <div className="text-xs text-gray-400">
+                {peerParticipant ? '2 online' : '1 online'}
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/30 border border-white/10">
+            <div className={`w-2 h-2 rounded-full ${peerParticipant ? 'bg-green-500 animate-pulse' : 'bg-yellow-500'}`} />
+            <span className="text-sm font-medium text-gray-300">
+              {peerParticipant ? 'Active' : 'Waiting'}
+            </span>
           </div>
         </div>
         
