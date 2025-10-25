@@ -220,7 +220,7 @@ export class RedisQueue {
     const matchData2: MatchData = {
       roomName,
       peerId: userId,
-      peerTopics: [], // This will be set by the calling function
+      peerTopics: peerTopics.map(t => t.trim().toLowerCase()).filter(t => t.length > 0), // Set the same topics for both users
       ts: Date.now(),
     };
 

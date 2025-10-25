@@ -118,7 +118,7 @@ export default function RandomQueue() {
   const startPolling = useCallback(() => {
     const interval = setInterval(async () => {
       try {
-        const response = await fetch('/api/voice/random/queue/status');
+        const response = await fetch('/api/voice/random/queue');
         if (response.ok) {
           const data = await response.json();
           if (data.matched) {

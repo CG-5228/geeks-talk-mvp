@@ -214,24 +214,8 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
           encoder.encode(JSON.stringify(publicKeyData)),
           { reliable: true }
         );
+        console.log('Sent public key to peer');
       }
-
-      // Listen for peer's public key
-      roomInstance.on(RoomEvent.DataReceived, (payload: Uint8Array, participant?: RemoteParticipant) => {
-        if (participant?.identity === peerId) {
-          try {
-            const decoder = new TextDecoder();
-            const data = JSON.parse(decoder.decode(payload));
-            
-            if (data.type === 'e2ee-pubkey' && !peerPublicKey) {
-              const peerKey = base64ToArrayBuffer(data.publicKey);
-              setPeerPublicKey(new Uint8Array(peerKey));
-            }
-          } catch (error) {
-            console.error('Failed to parse peer public key:', error);
-          }
-        }
-      });
 
     } catch (error) {
       console.error('Failed to start E2EE key exchange:', error);
@@ -244,11 +228,15 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
       const decoder = new TextDecoder();
       const data = JSON.parse(decoder.decode(payload));
       
+      console.log('Received data:', data.type);
+      
       if (data.type === 'e2ee-pubkey' && !peerPublicKey) {
+        console.log('Received peer public key');
         const peerKey = base64ToArrayBuffer(data.publicKey);
         setPeerPublicKey(new Uint8Array(peerKey));
       } else if (data.type === 'e2ee-rekey-pubkey') {
         // Handle rekey
+        console.log('Received rekey public key');
         handleRekeyWithPeerKey(new Uint8Array(base64ToArrayBuffer(data.publicKey)));
       }
     } catch (error) {
@@ -265,16 +253,24 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
 
   const completeE2EESetup = async () => {
     try {
-      if (!myKeypair || !peerPublicKey || !room) return;
+      if (!myKeypair || !peerPublicKey || !room) {
+        console.log('Missing requirements for E2EE setup:', { myKeypair: !!myKeypair, peerPublicKey: !!peerPublicKey, room: !!room });
+        return;
+      }
+
+      console.log('Starting E2EE setup...');
 
       // Derive shared secret
       const sharedSecret = await deriveSharedSecret(myKeypair.privateKey, peerPublicKey);
+      console.log('Shared secret derived');
       
       // Derive encryption key
       const encryptionKey = await hkdf(sharedSecret, roomName, keyIndex);
+      console.log('Encryption key derived');
       
       // Setup SFrame encryption
       const success = await setupSFrameEncryption(room, encryptionKey, keyIndex);
+      console.log('SFrame setup result:', success);
       
       if (success) {
         setE2eeStatus('ready');
@@ -284,6 +280,7 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
         clearSensitiveData(sharedSecret);
         clearSensitiveData(encryptionKey);
       } else {
+        console.log('SFrame setup failed');
         setE2eeStatus('error');
       }
     } catch (error) {
