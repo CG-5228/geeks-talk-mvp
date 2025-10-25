@@ -106,6 +106,8 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
         return;
       }
 
+      console.log('E2EE support confirmed:', supportInfo);
+
       // Generate X25519 keypair
       const keypair = await generateX25519Keypair();
       setMyKeypair(keypair);
@@ -175,11 +177,30 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
         }
       });
 
+      // If no peer found, check again after a short delay
+      if (roomInstance.remoteParticipants.size === 0) {
+        console.log('No participants found, will check again...');
+        setTimeout(() => {
+          console.log('Rechecking participants after 2 seconds...');
+          console.log('Current participants:', roomInstance.remoteParticipants.size);
+          roomInstance.remoteParticipants.forEach((participant, identity) => {
+            console.log('Found participant on recheck:', identity, 'Expected:', peerId);
+            if (identity === peerId) {
+              console.log('✅ Found expected peer on recheck!');
+              setPeerParticipant(participant);
+            }
+          });
+        }, 2000);
+      }
+
       // Wait a moment for connection to stabilize, then start E2EE key exchange
       setTimeout(async () => {
         if (e2eeStatus !== 'unsupported') {
           console.log('Starting E2EE key exchange after connection...');
           await startE2EEKeyExchange(roomInstance);
+        } else {
+          console.log('E2EE not supported, proceeding without encryption');
+          setE2eeStatus('ready'); // Allow room to work without E2EE
         }
       }, 1000);
       
@@ -189,7 +210,7 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
         console.log('Current remote participants:', roomInstance.remoteParticipants.size);
         roomInstance.remoteParticipants.forEach((participant, identity) => {
           console.log('Found participant:', identity, 'Expected:', peerId);
-          if (identity === peerId && !peerParticipant) {
+          if (identity === peerId) {
             console.log('✅ Setting peer participant from delayed check');
             setPeerParticipant(participant);
           }
@@ -278,10 +299,8 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
 
       // Set up a timeout for key exchange
       const keyExchangeTimeout = setTimeout(() => {
-        if (e2eeStatus === 'exchanging') {
-          console.log('Key exchange timeout - no peer key received');
-          setE2eeStatus('error');
-        }
+        console.log('Key exchange timeout - no peer key received');
+        setE2eeStatus('error');
       }, 10000); // 10 second timeout
 
       // Store timeout for cleanup
@@ -316,7 +335,8 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
 
   // Complete E2EE setup when both keys are available
   useEffect(() => {
-    if (myKeypair && peerPublicKey && room && e2eeStatus === 'exchanging') {
+    if (myKeypair && peerPublicKey && room && (e2eeStatus === 'exchanging' || e2eeStatus === 'initializing')) {
+      console.log('Triggering E2EE setup with status:', e2eeStatus);
       completeE2EESetup();
     }
   }, [myKeypair, peerPublicKey, room, e2eeStatus]);
@@ -325,6 +345,12 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
     try {
       if (!myKeypair || !peerPublicKey || !room) {
         console.log('Missing requirements for E2EE setup:', { myKeypair: !!myKeypair, peerPublicKey: !!peerPublicKey, room: !!room });
+        return;
+      }
+
+      // Prevent multiple E2EE setups
+      if (e2eeStatus === 'ready' || e2eeStatus === 'error') {
+        console.log('E2EE already completed or failed, skipping setup');
         return;
       }
 
@@ -346,12 +372,24 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
       }
 
       // Set the encryption key
-      await e2eeKeyProvider.setKey(encryptionKey.slice().buffer);
-      console.log('Set encryption key with index:', keyIndex);
+      try {
+        await e2eeKeyProvider.setKey(encryptionKey.slice().buffer);
+        console.log('Set encryption key with index:', keyIndex);
+      } catch (keyError) {
+        console.error('Failed to set encryption key:', keyError);
+        setE2eeStatus('error');
+        return;
+      }
       
       // Enable E2EE on the room
-      await room.setE2EEEnabled(true);
-      console.log('E2EE enabled on room');
+      try {
+        await room.setE2EEEnabled(true);
+        console.log('E2EE enabled on room');
+      } catch (e2eeError) {
+        console.error('Failed to enable E2EE:', e2eeError);
+        setE2eeStatus('error');
+        return;
+      }
       
       // Wait a moment to ensure both sides have set their keys
       await new Promise(resolve => setTimeout(resolve, 1000));
