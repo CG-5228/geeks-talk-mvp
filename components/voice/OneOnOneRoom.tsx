@@ -41,23 +41,34 @@ type E2EEStatus = 'initializing' | 'exchanging' | 'ready' | 'error' | 'unsupport
 
 // Audio Waveform Component
 const AudioWaveform = ({ level, isActive }: { level: number; isActive: boolean }) => {
-  const bars = Array.from({ length: 5 }, (_, i) => {
-    const height = isActive ? Math.max(2, (level * 20) * (0.5 + Math.random() * 0.5)) : 2;
+  // Different sensitivities for each bar to create more natural visualization
+  const barSensitivities = [0.4, 0.7, 1, 0.7, 0.4];
+  
+  const bars = barSensitivities.map((sensitivity, i) => {
+    // Apply sensitivity and add slight randomness for natural look
+    const adjustedLevel = level * sensitivity * (0.9 + Math.random() * 0.2);
+    
+    // Calculate height with minimum visible height
+    const height = isActive && level > 0.02 
+      ? Math.max(4, Math.min(20, adjustedLevel * 30))
+      : 4;
+    
     return (
       <div
         key={i}
-        className="bg-green-400 rounded-sm transition-all duration-75"
+        className="bg-green-400 rounded-sm transition-all"
         style={{
           width: '2px',
           height: `${height}px`,
-          opacity: isActive ? 0.8 : 0.3
+          opacity: isActive && level > 0.02 ? 0.6 + adjustedLevel * 0.4 : 0.3,
+          transitionDuration: isActive ? '50ms' : '200ms'
         }}
       />
     );
   });
 
   return (
-    <div className="flex items-center gap-1 h-4">
+    <div className="flex items-center gap-1 h-5">
       {bars}
     </div>
   );
@@ -68,7 +79,9 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
   const [room, setRoom] = useState<Room | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [isMicEnabled, setIsMicEnabled] = useState(false);
+  const isMicEnabledRef = useRef(false);
   const [isVolumeEnabled, setIsVolumeEnabled] = useState(true);
+  const volumeEnabledRef = useRef(true);
   const [e2eeStatus, setE2eeStatus] = useState<E2EEStatus>('initializing');
   const [peerParticipant, setPeerParticipant] = useState<RemoteParticipant | null>(null);
   const [connectionQuality, setConnectionQuality] = useState<'excellent' | 'good' | 'poor'>('excellent');
@@ -94,9 +107,17 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
   const localAnalyserRef = useRef<AnalyserNode | null>(null);
   const peerAnalyserRef = useRef<AnalyserNode | null>(null);
   const animationFrameRef = useRef<number | null>(null);
+  const peerAnimationFrameRef = useRef<number | null>(null);
+  const peerSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
   
   const { showDialog, DialogComponent } = useStyledDialog();
   const roomRef = useRef<Room | null>(null);
+  
+  // Helper to update mic enabled state and ref
+  const updateMicEnabled = (enabled: boolean) => {
+    setIsMicEnabled(enabled);
+    isMicEnabledRef.current = enabled;
+  };
 
   // Initialize room connection
   useEffect(() => {
@@ -262,6 +283,179 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
     }
   };
 
+  // Function to start monitoring peer audio
+  const startPeerAudioMonitoring = async (track: any) => {
+    try {
+      // Wait a bit for track to be fully ready
+      await new Promise(resolve => setTimeout(resolve, 200));
+      
+      if (!track || !track.mediaStreamTrack || track.mediaStreamTrack.readyState !== 'live') {
+        console.log('Peer audio track not ready');
+        return;
+      }
+      
+      // Create or get audio context
+      if (!audioContextRef.current) {
+        audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+      }
+      
+      // Resume audio context if suspended
+      if (audioContextRef.current.state === 'suspended') {
+        await audioContextRef.current.resume();
+        console.log('Audio context resumed for peer monitoring');
+      }
+      
+      // Clean up old analyser and source if exists
+      if (peerAnalyserRef.current) {
+        peerAnalyserRef.current.disconnect();
+      }
+      if (peerSourceRef.current) {
+        peerSourceRef.current.disconnect();
+      }
+      
+      // Create new analyser
+      const analyser = audioContextRef.current.createAnalyser();
+      peerAnalyserRef.current = analyser;
+      
+      // Create source from media stream
+      const source = audioContextRef.current.createMediaStreamSource(
+        new MediaStream([track.mediaStreamTrack])
+      );
+      peerSourceRef.current = source;
+      source.connect(analyser);
+      
+      // Configure analyser for better sensitivity
+      analyser.fftSize = 256;
+      analyser.smoothingTimeConstant = 0.3; // Less smoothing for more responsive feedback
+      analyser.minDecibels = -90;
+      analyser.maxDecibels = -10;
+      
+      const dataArray = new Uint8Array(analyser.frequencyBinCount);
+      
+      // Cancel any existing animation frame
+      if (peerAnimationFrameRef.current) {
+        cancelAnimationFrame(peerAnimationFrameRef.current);
+      }
+      
+      // Update audio level continuously
+      const updatePeerAudioLevel = () => {
+        if (track.mediaStreamTrack && track.mediaStreamTrack.readyState === 'live') {
+          analyser.getByteFrequencyData(dataArray);
+          
+          // Calculate RMS for better audio level detection
+          let sum = 0;
+          for (let i = 0; i < dataArray.length; i++) {
+            sum += dataArray[i] * dataArray[i];
+          }
+          const rms = Math.sqrt(sum / dataArray.length);
+          const normalizedLevel = Math.min(rms / 100, 1); // Adjusted normalization
+          
+          setPeerAudioLevel(normalizedLevel);
+          peerAnimationFrameRef.current = requestAnimationFrame(updatePeerAudioLevel);
+        } else {
+          setPeerAudioLevel(0);
+          peerAnimationFrameRef.current = requestAnimationFrame(updatePeerAudioLevel);
+        }
+      };
+      
+      updatePeerAudioLevel();
+      console.log('Peer audio monitoring started');
+    } catch (error) {
+      console.error('Failed to start peer audio monitoring:', error);
+      setPeerAudioLevel(0);
+    }
+  };
+
+  // Function to start monitoring local audio
+  const startLocalAudioMonitoring = async (roomInstance: Room) => {
+    try {
+      // Wait a bit for track to be fully ready
+      await new Promise(resolve => setTimeout(resolve, 200));
+      
+      if (roomInstance.localParticipant.audioTrackPublications.size === 0) {
+        console.log('No local audio track available for monitoring');
+        return;
+      }
+      
+      const audioTrack = Array.from(roomInstance.localParticipant.audioTrackPublications.values())[0];
+      if (!audioTrack.track || !audioTrack.track.mediaStreamTrack) {
+        console.log('Audio track not ready');
+        return;
+      }
+      
+      // Create or get audio context
+      if (!audioContextRef.current) {
+        audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+      }
+      
+      // Resume audio context if suspended (required for user interaction)
+      if (audioContextRef.current.state === 'suspended') {
+        await audioContextRef.current.resume();
+        console.log('Audio context resumed');
+      }
+      
+      // Clean up old analyser if exists
+      if (localAnalyserRef.current) {
+        localAnalyserRef.current.disconnect();
+      }
+      
+      // Create new analyser
+      const analyser = audioContextRef.current.createAnalyser();
+      localAnalyserRef.current = analyser;
+      
+      // Create source from media stream
+      const source = audioContextRef.current.createMediaStreamSource(
+        new MediaStream([audioTrack.track.mediaStreamTrack])
+      );
+      source.connect(analyser);
+      
+      // Configure analyser for better sensitivity
+      analyser.fftSize = 256;
+      analyser.smoothingTimeConstant = 0.3; // Less smoothing for more responsive feedback
+      analyser.minDecibels = -90;
+      analyser.maxDecibels = -10;
+      
+      const dataArray = new Uint8Array(analyser.frequencyBinCount);
+      
+      // Cancel any existing animation frame
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+      }
+      
+      // Update audio level continuously
+      const updateLocalAudioLevel = () => {
+        if (!isMicEnabledRef.current || !roomInstance) {
+          setMyAudioLevel(0);
+          return;
+        }
+        
+        if (audioTrack.track && audioTrack.track.mediaStreamTrack && audioTrack.track.mediaStreamTrack.readyState === 'live') {
+          analyser.getByteFrequencyData(dataArray);
+          
+          // Calculate RMS for better audio level detection
+          let sum = 0;
+          for (let i = 0; i < dataArray.length; i++) {
+            sum += dataArray[i] * dataArray[i];
+          }
+          const rms = Math.sqrt(sum / dataArray.length);
+          const normalizedLevel = Math.min(rms / 100, 1); // Adjusted normalization
+          
+          setMyAudioLevel(normalizedLevel);
+          animationFrameRef.current = requestAnimationFrame(updateLocalAudioLevel);
+        } else {
+          setMyAudioLevel(0);
+          animationFrameRef.current = requestAnimationFrame(updateLocalAudioLevel);
+        }
+      };
+      
+      updateLocalAudioLevel();
+      console.log('Local audio monitoring started');
+    } catch (error) {
+      console.error('Failed to start local audio monitoring:', error);
+      setMyAudioLevel(0);
+    }
+  };
+
   const setupRoomEventListeners = (roomInstance: Room) => {
     roomInstance.on(RoomEvent.Connected, () => {
       console.log('Connected to room');
@@ -271,21 +465,25 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
       console.log('Local audio tracks:', roomInstance.localParticipant.audioTrackPublications.size);
       console.log('Remote participants:', roomInstance.remoteParticipants.size);
       
-      // Check if we need to enable microphone
-      if (e2eeStatus === 'ready' && !isMicEnabled) {
-        console.log('E2EE ready, enabling microphone after connection...');
-        roomInstance.localParticipant.setMicrophoneEnabled(true).then(() => {
-          setIsMicEnabled(true);
-          console.log('Microphone enabled after connection');
-        }).catch(error => {
-          console.error('Failed to enable microphone after connection:', error);
-        });
-      }
+      // Initialize microphone as muted by default
+      console.log('Initializing microphone state...');
+      roomInstance.localParticipant.setMicrophoneEnabled(false).then(() => {
+        updateMicEnabled(false);
+        console.log('Microphone initialized as muted');
+      }).catch(error => {
+        console.error('Failed to initialize microphone:', error);
+      });
     });
 
     roomInstance.on(RoomEvent.Disconnected, () => {
       console.log('Disconnected from room');
       setIsConnected(false);
+      
+      // Clean up local track check interval
+      if ((roomInstance as any).localTrackCheckInterval) {
+        clearInterval((roomInstance as any).localTrackCheckInterval);
+        delete (roomInstance as any).localTrackCheckInterval;
+      }
     });
 
     roomInstance.on(RoomEvent.ParticipantConnected, (participant: RemoteParticipant) => {
@@ -301,6 +499,27 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
         console.log('Peer audio tracks:', participant.audioTrackPublications.size);
         participant.audioTrackPublications.forEach((publication, key) => {
           console.log('Audio track publication:', key, 'muted:', publication.isMuted, 'subscribed:', publication.isSubscribed);
+          
+          // If track is already subscribed, handle it
+          if (publication.isSubscribed && publication.track && publication.kind === 'audio') {
+            console.log('Peer already has subscribed audio track, setting up...');
+            setTimeout(() => {
+              // Trigger the same setup as TrackSubscribed
+              const track = publication.track;
+              if (track) {
+                const audioElement = track.attach();
+                audioElement.style.display = 'none';
+                audioElement.volume = volumeEnabledRef.current ? 1 : 0;
+                audioElement.muted = !volumeEnabledRef.current;
+                audioElement.autoplay = true;
+                document.body.appendChild(audioElement);
+                (track as any).audioElement = audioElement;
+                
+                audioElement.play().catch(err => console.warn('Play error:', err));
+                startPeerAudioMonitoring(track);
+              }
+            }, 100);
+          }
         });
       } else {
         console.log('⚠️ Unexpected participant connected:', participant.identity);
@@ -344,34 +563,42 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
         console.log('Audio track subscribed for peer:', participant.identity);
         setPeerMicEnabled(true);
         
-        // Monitor audio levels for peer
-        try {
-          if (!audioContextRef.current) {
-            audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+        // IMPORTANT: Attach the track to play audio through speakers
+        const audioElement = track.attach();
+        audioElement.style.display = 'none';
+        
+        // Set up audio element properties
+        audioElement.volume = volumeEnabledRef.current ? 1 : 0;
+        audioElement.muted = !volumeEnabledRef.current;
+        audioElement.autoplay = true;
+        
+        document.body.appendChild(audioElement);
+        
+        // Ensure audio plays (with retry)
+        const playAudio = async () => {
+          try {
+            await audioElement.play();
+            console.log('Peer audio element playing');
+          } catch (error) {
+            console.warn('Failed to play peer audio initially, will retry:', error);
+            // Retry after user interaction or after a delay
+            setTimeout(async () => {
+              try {
+                await audioElement.play();
+                console.log('Peer audio element playing after retry');
+              } catch (retryError) {
+                console.error('Failed to play peer audio after retry:', retryError);
+              }
+            }, 1000);
           }
-          
-          const analyser = audioContextRef.current.createAnalyser();
-          peerAnalyserRef.current = analyser;
-          const source = audioContextRef.current.createMediaStreamSource(new MediaStream([track.mediaStreamTrack]));
-          source.connect(analyser);
-          
-          analyser.fftSize = 256;
-          analyser.smoothingTimeConstant = 0.8;
-          const dataArray = new Uint8Array(analyser.frequencyBinCount);
-          
-          const updateAudioLevel = () => {
-            if (track.mediaStreamTrack.readyState === 'live') {
-              analyser.getByteFrequencyData(dataArray);
-              const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
-              const normalizedLevel = average / 255;
-              setPeerAudioLevel(normalizedLevel);
-              animationFrameRef.current = requestAnimationFrame(updateAudioLevel);
-            }
-          };
-          updateAudioLevel();
-        } catch (error) {
-          console.error('Failed to monitor peer audio:', error);
-        }
+        };
+        playAudio();
+        
+        // Store reference for cleanup
+        (track as any).audioElement = audioElement;
+        
+        // Start monitoring peer audio levels
+        startPeerAudioMonitoring(track);
       }
     });
 
@@ -381,10 +608,29 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
         setPeerMicEnabled(false);
         setPeerAudioLevel(0);
         
-        // Clean up animation frame
-        if (animationFrameRef.current) {
-          cancelAnimationFrame(animationFrameRef.current);
-          animationFrameRef.current = null;
+        // Clean up audio element
+        if ((track as any).audioElement) {
+          (track as any).audioElement.remove();
+          delete (track as any).audioElement;
+        }
+        
+        // Detach the track
+        track.detach();
+        
+        // Clean up peer animation frame
+        if (peerAnimationFrameRef.current) {
+          cancelAnimationFrame(peerAnimationFrameRef.current);
+          peerAnimationFrameRef.current = null;
+        }
+        
+        // Clean up peer analyser and source
+        if (peerAnalyserRef.current) {
+          peerAnalyserRef.current.disconnect();
+          peerAnalyserRef.current = null;
+        }
+        if (peerSourceRef.current) {
+          peerSourceRef.current.disconnect();
+          peerSourceRef.current = null;
         }
       }
     });
@@ -404,6 +650,26 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
         setPeerMicEnabled(true);
       }
     });
+
+    // Monitor local track publications by checking periodically
+    const checkLocalTracks = () => {
+      const audioTracks = Array.from(roomInstance.localParticipant.audioTrackPublications.values());
+      if (audioTracks.length > 0 && isMicEnabledRef.current) {
+        const audioTrack = audioTracks[0];
+        if (audioTrack.track && audioTrack.track.mediaStreamTrack && audioTrack.track.mediaStreamTrack.readyState === 'live') {
+          // Track is published and ready, start monitoring if not already
+          if (!localAnalyserRef.current || myAudioLevel === 0) {
+            startLocalAudioMonitoring(roomInstance);
+          }
+        }
+      }
+    };
+    
+    // Check for local tracks periodically
+    const localTrackCheckInterval = setInterval(checkLocalTracks, 500);
+    
+    // Store interval for cleanup
+    (roomInstance as any).localTrackCheckInterval = localTrackCheckInterval;
 
     // Monitor local audio level
     const monitorLocalAudio = () => {
@@ -566,66 +832,42 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
     }
   }, [myKeypair, peerPublicKey, room, e2eeStatus]);
 
-  // Auto-enable microphone when E2EE is ready
+  // Auto-enable microphone when E2EE is ready (only once on initial setup)
   useEffect(() => {
-    if (e2eeStatus === 'ready' && room && !isMicEnabled) {
-      console.log('E2EE ready, enabling microphone...');
-      const enableMic = async () => {
-        try {
-          await room.localParticipant.setMicrophoneEnabled(true);
-          setIsMicEnabled(true);
-        } catch (error) {
-          console.error('Failed to enable microphone:', error);
-        }
-      };
-      enableMic();
+    if (e2eeStatus === 'ready' && room) {
+      // Only auto-enable on first E2EE ready, not on subsequent changes
+      const hasBeenInitialized = room.localParticipant.audioTrackPublications.size > 0;
+      if (!hasBeenInitialized) {
+        console.log('E2EE ready, initializing microphone...');
+        const initMic = async () => {
+          try {
+            await room.localParticipant.setMicrophoneEnabled(false);
+            updateMicEnabled(false);
+            console.log('Microphone initialized as muted');
+          } catch (error) {
+            console.error('Failed to initialize microphone:', error);
+          }
+        };
+        initMic();
+      }
     }
-  }, [e2eeStatus, room, isMicEnabled]);
+  }, [e2eeStatus, room]);
 
   // Monitor local audio levels when mic is enabled
   useEffect(() => {
     if (isMicEnabled && room) {
-      const monitorLocalAudio = () => {
-        if (room && room.localParticipant.audioTrackPublications.size > 0) {
-          const audioTrack = Array.from(room.localParticipant.audioTrackPublications.values())[0];
-          if (audioTrack.track && audioTrack.track.mediaStreamTrack) {
-            try {
-              if (!audioContextRef.current) {
-                audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
-              }
-              
-              const analyser = audioContextRef.current.createAnalyser();
-              localAnalyserRef.current = analyser;
-              const source = audioContextRef.current.createMediaStreamSource(new MediaStream([audioTrack.track.mediaStreamTrack]));
-              source.connect(analyser);
-              
-              analyser.fftSize = 256;
-              analyser.smoothingTimeConstant = 0.8;
-              const dataArray = new Uint8Array(analyser.frequencyBinCount);
-              
-              const updateLocalAudioLevel = () => {
-                if (isMicEnabled && room && audioTrack.track && audioTrack.track.mediaStreamTrack && audioTrack.track.mediaStreamTrack.readyState === 'live') {
-                  analyser.getByteFrequencyData(dataArray);
-                  const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
-                  setMyAudioLevel(average / 255);
-                  animationFrameRef.current = requestAnimationFrame(updateLocalAudioLevel);
-                }
-              };
-              updateLocalAudioLevel();
-            } catch (error) {
-              console.error('Failed to monitor local audio:', error);
-            }
-          }
-        }
-      };
-      
-      monitorLocalAudio();
+      // Use the dedicated monitoring function
+      startLocalAudioMonitoring(room);
     } else {
       setMyAudioLevel(0);
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
+      }
     }
   }, [isMicEnabled, room]);
 
-  // Periodic check for peer microphone state and audio levels
+  // Periodic check for peer microphone state (monitoring is handled by TrackSubscribed)
   useEffect(() => {
     if (peerParticipant && room) {
       const checkPeerMicState = () => {
@@ -635,29 +877,17 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
           const isMuted = audioTrack.isMuted;
           setPeerMicEnabled(!isMuted);
           
+          // If muted, stop monitoring
           if (isMuted) {
             setPeerAudioLevel(0);
+            if (peerAnimationFrameRef.current) {
+              cancelAnimationFrame(peerAnimationFrameRef.current);
+              peerAnimationFrameRef.current = null;
+            }
           } else {
-            // Try to get audio level from the track
-            try {
-              if (audioTrack.track && audioTrack.track.mediaStreamTrack) {
-                if (!audioContextRef.current) {
-                  audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
-                }
-                
-                const analyser = audioContextRef.current.createAnalyser();
-                const source = audioContextRef.current.createMediaStreamSource(new MediaStream([audioTrack.track.mediaStreamTrack]));
-                source.connect(analyser);
-                
-                analyser.fftSize = 256;
-                const dataArray = new Uint8Array(analyser.frequencyBinCount);
-                analyser.getByteFrequencyData(dataArray);
-                const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
-                const normalizedLevel = average / 255;
-                setPeerAudioLevel(normalizedLevel);
-              }
-            } catch (error) {
-              console.error('Failed to get peer audio level:', error);
+            // If unmuted and track exists but monitoring not started, start it
+            if (audioTrack.track && audioTrack.track.mediaStreamTrack && !peerAnalyserRef.current) {
+              startPeerAudioMonitoring(audioTrack.track);
             }
           }
         } else {
@@ -669,8 +899,8 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
       // Check immediately
       checkPeerMicState();
       
-      // Check every 1 second for more responsive updates
-      const interval = setInterval(checkPeerMicState, 1000);
+      // Check every 2 seconds for state updates (monitoring is continuous once started)
+      const interval = setInterval(checkPeerMicState, 2000);
       
       return () => clearInterval(interval);
     }
@@ -817,28 +1047,86 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
       return;
     }
 
+    if (!room.localParticipant) {
+      console.log('Cannot toggle mic - no local participant');
+      return;
+    }
+
     try {
-      console.log('Toggling microphone. Current state:', isMicEnabled);
+      const currentState = isMicEnabled;
+      const newState = !currentState;
       
-      if (isMicEnabled) {
-        console.log('Disabling microphone...');
-        await room.localParticipant.setMicrophoneEnabled(false);
-        setIsMicEnabled(false);
-        console.log('Microphone disabled');
+      console.log(`Toggling microphone from ${currentState} to ${newState}`);
+      
+      // Update the state immediately for responsive UI
+      updateMicEnabled(newState);
+      
+      // Then apply the change to LiveKit
+      await room.localParticipant.setMicrophoneEnabled(newState);
+      
+      console.log(`Microphone ${newState ? 'enabled' : 'disabled'} successfully`);
+      
+      // If enabling, wait for track to be published and start monitoring
+      if (newState) {
+        // Wait a bit for the track to be published
+        setTimeout(async () => {
+          if (room && room.localParticipant.audioTrackPublications.size > 0) {
+            await startLocalAudioMonitoring(room);
+          } else {
+            // Retry after a bit more time
+            setTimeout(async () => {
+              if (room && room.localParticipant.audioTrackPublications.size > 0) {
+                await startLocalAudioMonitoring(room);
+              }
+            }, 500);
+          }
+        }, 300);
       } else {
-        console.log('Enabling microphone...');
-        await room.localParticipant.setMicrophoneEnabled(true);
-        setIsMicEnabled(true);
-        console.log('Microphone enabled');
+        // If disabling, stop monitoring
+        setMyAudioLevel(0);
+        if (animationFrameRef.current) {
+          cancelAnimationFrame(animationFrameRef.current);
+          animationFrameRef.current = null;
+        }
       }
+      
     } catch (error) {
       console.error('Failed to toggle microphone:', error);
+      // Revert the state on error
+      updateMicEnabled(!isMicEnabled);
+      
+      // Show error to user
+      showDialog({
+        title: 'Microphone Error',
+        message: 'Failed to toggle microphone. Please try again.',
+        type: 'error'
+      });
     }
   };
 
   const toggleVolume = () => {
-    setIsVolumeEnabled(!isVolumeEnabled);
-    // TODO: Implement volume control
+    const newVolumeState = !isVolumeEnabled;
+    setIsVolumeEnabled(newVolumeState);
+    volumeEnabledRef.current = newVolumeState;
+    
+    // Control volume for all remote audio tracks
+    if (room) {
+      room.remoteParticipants.forEach((participant) => {
+        participant.audioTrackPublications.forEach((publication) => {
+          if (publication.track && publication.kind === 'audio') {
+            const audioTrack = publication.track;
+            // Get all audio elements for this track
+            const audioElements = audioTrack.attachedElements;
+            audioElements.forEach((element: HTMLMediaElement) => {
+              element.volume = newVolumeState ? 1 : 0;
+              element.muted = !newVolumeState;
+            });
+          }
+        });
+      });
+      
+      console.log(`All remote audio ${newVolumeState ? 'unmuted' : 'muted'}`);
+    }
   };
 
   const handleLeave = async () => {
@@ -914,19 +1202,9 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
       {/* Left Sidebar - Voice Controls */}
       <div className="w-80 bg-black/20 backdrop-blur-xl border-r border-white/10 flex flex-col">
         {/* Header */}
-        <div className="p-6 border-b border-white/10 bg-gradient-to-r from-black/10 to-transparent">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-green-500/20 to-green-600/20 flex items-center justify-center border border-green-500/30">
-                <Mic className="w-4 h-4 text-green-400" />
-              </div>
-              <div>
-                <h2 className="text-xl font-semibold text-white">Voice Chat</h2>
-                <div className="text-xs text-gray-400">
-                  {roomName.replace('1v1-', '')}
-                </div>
-              </div>
-            </div>
+        <div className="p-6 border-b border-white/10 bg-gradient-to-r from-black/10 to-transparent space-y-3">
+          {/* Connection Status Badge - Top */}
+          <div className="flex items-center justify-end">
             <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/30 border border-white/10">
               <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`} />
               <span className="text-sm font-medium text-gray-300">
@@ -934,12 +1212,27 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
               </span>
             </div>
           </div>
-          <div className="flex items-center gap-4 text-xs text-gray-400">
-            <div className="flex items-center gap-1">
+          
+          {/* Title and Icon */}
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-green-500/20 to-green-600/20 flex items-center justify-center border border-green-500/30 flex-shrink-0">
+              <Mic className="w-5 h-5 text-green-400" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <h2 className="text-xl font-semibold text-white">Voice Chat</h2>
+              <div className="text-xs text-gray-400 truncate" title={roomName.replace('1v1-', '')}>
+                {roomName.replace('1v1-', '')}
+              </div>
+            </div>
+          </div>
+          
+          {/* Status Indicators */}
+          <div className="flex items-center gap-4 text-xs text-gray-400 pt-1">
+            <div className="flex items-center gap-1.5">
               <div className="w-1.5 h-1.5 rounded-full bg-blue-400" />
               <span>E2EE Ready</span>
             </div>
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-1.5">
               <div className={`w-1.5 h-1.5 rounded-full ${isMicEnabled ? 'bg-green-400' : 'bg-gray-500'}`} />
               <span>{isMicEnabled ? 'Mic Active' : 'Mic Muted'}</span>
             </div>
@@ -1054,23 +1347,28 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
 
       {/* Right Sidebar - Participant Info */}
       <div className="w-80 bg-black/20 backdrop-blur-xl border-l border-white/10 p-6">
-        <div className="flex items-center justify-between mb-4 p-4 bg-gradient-to-r from-black/10 to-transparent rounded-lg border border-white/5">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500/20 to-blue-600/20 flex items-center justify-center border border-blue-500/30">
-              <Users className="w-4 h-4 text-blue-400" />
+        <div className="mb-4 p-4 bg-gradient-to-r from-black/10 to-transparent rounded-lg border border-white/5 space-y-3">
+          {/* Status Badge - Top */}
+          <div className="flex items-center justify-end">
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/30 border border-white/10">
+              <div className={`w-2 h-2 rounded-full ${peerParticipant ? 'bg-green-500 animate-pulse' : 'bg-yellow-500'}`} />
+              <span className="text-sm font-medium text-gray-300">
+                {peerParticipant ? 'Active' : 'Waiting'}
+              </span>
             </div>
-            <div>
+          </div>
+          
+          {/* Title and Icon */}
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-blue-500/20 to-blue-600/20 flex items-center justify-center border border-blue-500/30 flex-shrink-0">
+              <Users className="w-5 h-5 text-blue-400" />
+            </div>
+            <div className="flex-1 min-w-0">
               <h3 className="text-lg font-semibold text-white">Participants</h3>
               <div className="text-xs text-gray-400">
                 {peerParticipant ? '2 online' : '1 online'}
               </div>
             </div>
-          </div>
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/30 border border-white/10">
-            <div className={`w-2 h-2 rounded-full ${peerParticipant ? 'bg-green-500 animate-pulse' : 'bg-yellow-500'}`} />
-            <span className="text-sm font-medium text-gray-300">
-              {peerParticipant ? 'Active' : 'Waiting'}
-            </span>
           </div>
         </div>
         
