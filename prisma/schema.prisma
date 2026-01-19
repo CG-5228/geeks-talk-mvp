@@ -9,66 +9,67 @@ datasource db {
 }
 
 model User {
-  id                String             @id @default(cuid())
-  name              String?
-  email             String             @unique
-  emailVerified     DateTime?
-  username          String?            @unique
-  image             String?
-  bio               String?
-  hashedPassword    String?
-  role              String             @default("user")
-  onlineStatus      String             @default("offline")
-  lastSeen          DateTime?
-  createdAt         DateTime           @default(now())
-  updatedAt         DateTime           @updatedAt
-  likesCount        Int                @default(0)
+  id                     String                  @id @default(cuid())
+  name                   String?
+  email                  String                  @unique
+  emailVerified          DateTime?
+  username               String?                 @unique
+  image                  String?
+  bio                    String?
+  hashedPassword         String?
+  role                   String                  @default("user")
+  onlineStatus           String                  @default("offline")
+  lastSeen               DateTime?
+  createdAt              DateTime                @default(now())
+  updatedAt              DateTime                @updatedAt
+  likesCount             Int                     @default(0)
   // Privacy settings
-  profileVisibility String             @default("public") // public, friends, private
-  showOnlineStatus  Boolean            @default(true)
-  dmPermissions     String             @default("everyone") // everyone, friends, nobody
-  accounts          Account[]
-  messagesReceived  AdminMessage[]     @relation("MessagesReceived")
-  messagesSent      AdminMessage[]     @relation("MessagesSent")
-  granteesAdmin     AdminPermission[]  @relation("AdminGranter")
-  adminPermission   AdminPermission?   @relation("AdminUser")
-  blogComments      BlogComment[]      @relation("BlogCommentAuthor")
-  blogPosts         BlogPost[]         @relation("BlogAuthor")
-  friendships       Friendship[]       @relation("Friendships")
-  friendOf          Friendship[]       @relation("FriendOf")
-  bugReports        BugReport[]
-  bugReplies        BugReply[]         @relation("BugReplies")
-  contactMessages   ContactMessage[]
-  contactReplies    ContactReply[]     @relation("ContactReplies")
-  receivedDMs       DirectMessage[]    @relation("DMReceiver")
-  sentDMs           DirectMessage[]    @relation("DMSender")
-  emailCodes        EmailCode[]
-  followers         Follow[]           @relation("FollowsFollowee")
-  following         Follow[]           @relation("FollowsFollower")
-  messages          Message[]
-  messageReactions  MessageReaction[]
-  notifications     Notification[]     @relation("UserNotifications")
-  randomChatQueue   RandomChatQueue?
-  ownedRooms        Room[]             @relation("RoomOwner")
-  sessions          Session[]
-  threads           Thread[]
-  tutorialVideos    TutorialVideo[]    @relation("TutorialUploader")
-  activity          UserActivity?      @relation("UserActivity")
-  bansIssued        UserBan[]          @relation("BanAdmin")
-  bans              UserBan[]          @relation("BannedUser")
-  likesGiven        UserLike[]         @relation("LikesGiven")
-  likesReceived     UserLike[]         @relation("LikesReceived")
-  reportsReceived   UserReport[]       @relation("ReportsReceived")
-  reportsMade       UserReport[]       @relation("ReportsMade")
-  reportsReviewed   UserReport[]       @relation("ReportsReviewed")
-  voiceEligibility  VoiceEligibility?
-  voiceFiles        VoiceGroupFile[]
-  voiceGroupMembers VoiceGroupMember[]
-  voteKickPolls     VoteKickPoll[]     @relation("VoteKickTarget")
-  rooms             Room[]             @relation("RoomUsers")
-  channelFilesUploaded ChannelFile[]
-  likeLogsGiven     UserLikeLog[]      @relation("LikeLogsGiven")
-  likeLogsReceived  UserLikeLog[]      @relation("LikeLogsReceived")
+  profileVisibility      String                  @default("public") // public, friends, private
+  showOnlineStatus       Boolean                 @default(true)
+  dmPermissions          String                  @default("everyone") // everyone, friends, nobody
+  accounts               Account[]
+  messagesReceived       AdminMessage[]          @relation("MessagesReceived")
+  messagesSent           AdminMessage[]          @relation("MessagesSent")
+  granteesAdmin          AdminPermission[]       @relation("AdminGranter")
+  adminPermission        AdminPermission?        @relation("AdminUser")
+  blogComments           BlogComment[]           @relation("BlogCommentAuthor")
+  blogPosts              BlogPost[]              @relation("BlogAuthor")
+  friendships            Friendship[]            @relation("Friendships")
+  friendOf               Friendship[]            @relation("FriendOf")
+  bugReports             BugReport[]
+  bugReplies             BugReply[]              @relation("BugReplies")
+  contactMessages        ContactMessage[]
+  contactReplies         ContactReply[]          @relation("ContactReplies")
+  receivedDMs            DirectMessage[]         @relation("DMReceiver")
+  sentDMs                DirectMessage[]         @relation("DMSender")
+  emailCodes             EmailCode[]
+  followers              Follow[]                @relation("FollowsFollowee")
+  following              Follow[]                @relation("FollowsFollower")
+  messages               Message[]
+  messageReactions       MessageReaction[]
+  notifications          Notification[]          @relation("UserNotifications")
+  randomChatQueue        RandomChatQueue?
+  ownedRooms             Room[]                  @relation("RoomOwner")
+  sessions               Session[]
+  threads                Thread[]
+  tutorialVideos         TutorialVideo[]         @relation("TutorialUploader")
+  activity               UserActivity?           @relation("UserActivity")
+  bansIssued             UserBan[]               @relation("BanAdmin")
+  bans                   UserBan[]               @relation("BannedUser")
+  likesGiven             UserLike[]              @relation("LikesGiven")
+  likesReceived          UserLike[]              @relation("LikesReceived")
+  reportsReceived        UserReport[]            @relation("ReportsReceived")
+  reportsMade            UserReport[]            @relation("ReportsMade")
+  reportsReviewed        UserReport[]            @relation("ReportsReviewed")
+  voiceEligibility       VoiceEligibility?
+  voiceFiles             VoiceGroupFile[]
+  voiceGroupMembers      VoiceGroupMember[]
+  voteKickPolls          VoteKickPoll[]          @relation("VoteKickTarget")
+  rooms                  Room[]                  @relation("RoomUsers")
+  channelFilesUploaded   ChannelFile[]
+  likeLogsGiven          UserLikeLog[]           @relation("LikeLogsGiven")
+  likeLogsReceived       UserLikeLog[]           @relation("LikeLogsReceived")
+  announcementDismissals AnnouncementDismissal[]
 }
 
 model Subject {
@@ -94,45 +95,45 @@ model Thread {
 }
 
 model Room {
-  id           String       @id @default(cuid())
+  id           String        @id @default(cuid())
   name         String
-  slug         String       @unique
+  slug         String        @unique
   topic        String?
-  isVoice      Boolean      @default(false)
-  isDM         Boolean      @default(false)
-  participants String[]     @default([])
+  isVoice      Boolean       @default(false)
+  isDM         Boolean       @default(false)
+  participants String[]      @default([])
   subjectId    String?
   threadId     String?
   ownerId      String?
-  category     String       @default("General")
-  visibility   String       @default("public")
-  inviteCode   String?      @unique
-  createdAt    DateTime     @default(now())
+  category     String        @default("General")
+  visibility   String        @default("public")
+  inviteCode   String?       @unique
+  createdAt    DateTime      @default(now())
   messages     Message[]
-  owner        User?        @relation("RoomOwner", fields: [ownerId], references: [id])
-  subject      Subject?     @relation(fields: [subjectId], references: [id])
-  thread       Thread?      @relation(fields: [threadId], references: [id])
+  owner        User?         @relation("RoomOwner", fields: [ownerId], references: [id])
+  subject      Subject?      @relation(fields: [subjectId], references: [id])
+  thread       Thread?       @relation(fields: [threadId], references: [id])
   voiceGroups  VoiceGroup[]
-  users        User[]       @relation("RoomUsers")
+  users        User[]        @relation("RoomUsers")
   channelFiles ChannelFile[]
 }
 
 model Message {
-  id                String    @id @default(cuid())
+  id                String        @id @default(cuid())
   content           String
-  createdAt         DateTime  @default(now())
+  createdAt         DateTime      @default(now())
   roomId            String
   authorId          String
-  moderationStatus  String    @default("pending")
-  spamScore         Float     @default(0)
+  moderationStatus  String        @default("pending")
+  spamScore         Float         @default(0)
   replyToId         String?
-  unsent            Boolean   @default(false)
+  unsent            Boolean       @default(false)
   forwardedFrom     String?
   forwardedFromType String?
-  author            User      @relation(fields: [authorId], references: [id])
-  replyTo           Message?  @relation("MessageReply", fields: [replyToId], references: [id])
-  replies           Message[] @relation("MessageReply")
-  room              Room      @relation(fields: [roomId], references: [id])
+  author            User          @relation(fields: [authorId], references: [id])
+  replyTo           Message?      @relation("MessageReply", fields: [replyToId], references: [id])
+  replies           Message[]     @relation("MessageReply")
+  room              Room          @relation(fields: [roomId], references: [id])
   files             MessageFile[]
 }
 
@@ -231,8 +232,8 @@ model BugReport {
   screenshotUrl String?
   severity      BugSeverity @default(MEDIUM)
   status        String      @default("open") // open, in-progress, resolved, closed
-  description   String?     // Additional description field
-  environment   String?     // Environment information
+  description   String? // Additional description field
+  environment   String? // Environment information
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @default(now()) @updatedAt
   user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -345,7 +346,7 @@ model VoteKickPoll {
 }
 
 model UserReport {
-  id          String    @id @default(cuid())
+  id          String                 @id @default(cuid())
   reporterId  String
   reportedId  String
   groupId     String?
@@ -353,14 +354,14 @@ model UserReport {
   reason      String
   category    String
   description String?
-  status      String    @default("pending")
+  status      String                 @default("pending")
   reviewedBy  String?
   reviewedAt  DateTime?
-  createdAt   DateTime  @default(now())
+  createdAt   DateTime               @default(now())
   attachments UserReportAttachment[]
-  reported    User      @relation("ReportsReceived", fields: [reportedId], references: [id])
-  reporter    User      @relation("ReportsMade", fields: [reporterId], references: [id])
-  reviewer    User?     @relation("ReportsReviewed", fields: [reviewedBy], references: [id])
+  reported    User                   @relation("ReportsReceived", fields: [reportedId], references: [id])
+  reporter    User                   @relation("ReportsMade", fields: [reporterId], references: [id])
+  reviewer    User?                  @relation("ReportsReviewed", fields: [reviewedBy], references: [id])
 
   @@index([reportedId])
   @@index([status])
@@ -496,14 +497,14 @@ model ContactReply {
 }
 
 model BugReply {
-  id         String    @id @default(cuid())
+  id          String    @id @default(cuid())
   bugReportId String
-  adminId    String
-  message    String
-  sentToEmail Boolean  @default(false)
-  createdAt  DateTime  @default(now())
-  admin      User      @relation("BugReplies", fields: [adminId], references: [id])
-  bugReport  BugReport @relation(fields: [bugReportId], references: [id], onDelete: Cascade)
+  adminId     String
+  message     String
+  sentToEmail Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+  admin       User      @relation("BugReplies", fields: [adminId], references: [id])
+  bugReport   BugReport @relation(fields: [bugReportId], references: [id], onDelete: Cascade)
 
   @@index([bugReportId])
 }
@@ -604,18 +605,29 @@ enum BugSeverity {
   CRITICAL
 }
 
+enum AnnouncementScope {
+  MAIN
+  LIVE
+}
+
+enum AnnouncementBehavior {
+  TIMED
+  PERSISTENT
+}
+
 model ChannelFile {
-  id          String   @id @default(cuid())
-  channelId   String
-  fileName    String
-  fileType    String
-  fileSize    Int
-  s3Key       String
-  uploaderId  String
-  createdAt   DateTime @default(now())
-  channel     Room     @relation(fields: [channelId], references: [id], onDelete: Cascade)
-  uploader    User     @relation(fields: [uploaderId], references: [id])
+  id           String        @id @default(cuid())
+  channelId    String
+  fileName     String
+  fileType     String
+  fileSize     Int
+  s3Key        String
+  uploaderId   String
+  createdAt    DateTime      @default(now())
+  channel      Room          @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  uploader     User          @relation(fields: [uploaderId], references: [id])
   messageFiles MessageFile[]
+
   @@index([channelId])
   @@index([uploaderId])
 }
@@ -627,7 +639,38 @@ model MessageFile {
   createdAt DateTime    @default(now())
   message   Message     @relation(fields: [messageId], references: [id], onDelete: Cascade)
   file      ChannelFile @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
   @@unique([messageId, fileId])
   @@index([messageId])
   @@index([fileId])
+}
+
+model SiteAnnouncement {
+  id         String               @id @default(cuid())
+  scope      AnnouncementScope
+  message    String
+  variant    String               @default("warning")
+  behavior   AnnouncementBehavior @default(PERSISTENT)
+  durationMs Int?
+  dismissKey String               @default(cuid())
+  isActive   Boolean              @default(true)
+  createdAt  DateTime             @default(now())
+  updatedAt  DateTime             @updatedAt
+
+  dismissals AnnouncementDismissal[]
+
+  @@index([scope, isActive])
+}
+
+model AnnouncementDismissal {
+  id             String   @id @default(cuid())
+  userId         String?
+  announcementId String
+  dismissedAt    DateTime @default(now())
+
+  user         User?            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  announcement SiteAnnouncement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+
+  @@index([userId, announcementId])
+  @@index([announcementId])
 }

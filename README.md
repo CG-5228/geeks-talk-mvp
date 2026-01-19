@@ -6,11 +6,15 @@ Geeks Talk is a comprehensive real-time chat and voice communication platform de
 
 - **Real-time Chat**: Users can send and receive messages instantly in chat rooms with live typing indicators
 - **Voice Rooms**: Advanced voice chat with group management, collaborative whiteboard, and document editing
+- **Video Chat**: Full-featured video calling with screen sharing, HD/SD quality options, participant grid, spotlight mode, and real-time chat sidebar
+- **One-on-One Voice Chat**: End-to-end encrypted 1v1 voice chat with random matching based on topics
 - **Collaborative Canvas**: Real-time whiteboard with tldraw integration for drawing and file annotation
 - **Document Collaboration**: Google Docs-like collaborative editing with TipTap and Yjs
 - **File Management**: Upload and share files with S3 integration
 - **Authentication**: Secure user authentication using Google OAuth and email/password
 - **Email Verification**: Email-based verification system with Resend API for signup, password reset, and password change
+- **Site Announcements**: Admin-controlled notification banners for main site and live subdomain with persistent/timed display options
+- **Admin Panel**: Comprehensive admin dashboard with user management, site banner management, bug reports, contact inbox, and analytics
 - **Moderation**: Built-in moderation tools and user reporting system
 - **Responsive Design**: Fully responsive UI built with Tailwind CSS
 - **Voice Features**: Push-to-talk, click-to-talk, vote-kick polls, and group management
@@ -102,9 +106,9 @@ geeks-talk-mvp
    AWS_REGION="us-east-1"
    AWS_S3_BUCKET="geekstalk-uploads-prod"
 
-   # LiveKit (for voice chat)
+   # LiveKit (for voice and video chat)
    LIVEKIT_API_KEY="your-livekit-api-key"
-   LIVEKIT_API_SECRET="your-livekit-api-secret"
+   LIVEKIT_SECRET="your-livekit-api-secret"
    LIVEKIT_URL="wss://your-livekit-server.com"
 
    # Social Media Links (Optional)
@@ -146,6 +150,64 @@ geeks-talk-mvp
 - Navigate to `http://localhost:3000` to access the application
 - Use the authentication options to log in and start chatting or joining voice rooms
 - Create channels, join voice groups, and collaborate on documents in real-time
+
+## Site Announcements System
+
+The application includes a comprehensive site-wide announcement banner system that allows administrators to display notifications to users.
+
+### Features
+
+- **Dual Scope Support**: Separate banners for main site and live subdomain
+- **Display Modes**: 
+  - **Persistent**: Banner stays visible until user dismisses it
+  - **Timed**: Banner automatically hides after specified duration
+- **Multiple Variants**: Warning, Info, Danger, and Success color schemes
+- **Real-time Updates**: Changes appear instantly on all connected user pages via Server-Sent Events (SSE)
+- **Dismissal Tracking**: Remembers user dismissals per banner (via localStorage for guests, database for logged-in users)
+- **Admin Management**: Full CRUD operations through admin panel with real-time status monitoring
+
+### Admin Panel Access
+
+Navigate to `/admin/[hash]/site-banner` to manage site announcements. Features include:
+- Create/edit banners for main site and live subdomain
+- Toggle active/inactive status
+- Delete banners
+- View real-time status of active banners
+- Reset dismissals to show banner to all users again
+
+### API Endpoints
+
+- `GET /api/admin/announcements?scope=main|live`: Get announcement for admin (returns all, including inactive)
+- `POST /api/admin/announcements`: Create or update announcement
+- `PATCH /api/admin/announcements`: Toggle active/inactive status
+- `DELETE /api/admin/announcements?scope=main|live`: Delete announcement
+- `GET /api/announcements?scope=main|live`: Get active announcement for users
+- `GET /api/announcements/realtime?scope=main|live`: SSE endpoint for real-time updates
+- `POST /api/user/announcement-dismiss`: Record user dismissal
+
+## Video Chat System
+
+The application includes a full-featured video calling system powered by LiveKit.
+
+### Features
+
+- **One-on-One & Group Calls**: Support for both private and group video calls
+- **Waiting Room**: Preview video/mic before starting, share room codes, see participants
+- **Screen Sharing**: Share your screen with other participants
+- **Video Quality Control**: HD, SD, and Low quality options
+- **Participant Grid**: Responsive grid layout for multiple participants
+- **Spotlight Mode**: Focus on one participant
+- **Real-time Chat**: Text chat sidebar during video calls
+- **Connection Quality Indicators**: Visual feedback for network quality
+- **Camera & Microphone Controls**: Toggle video/audio on/off
+
+### Usage
+
+1. Navigate to `/video` page
+2. Choose between "One-on-One" or "Group Call"
+3. Create a room or join with a room code
+4. Use the waiting room to preview and invite others
+5. Start the call when ready
 
 ## Email Verification System
 

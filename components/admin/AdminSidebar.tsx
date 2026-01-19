@@ -10,7 +10,8 @@ import {
   Mail, 
   Bell, 
   Shield,
-  Bug
+  Bug,
+  Megaphone
 } from 'lucide-react';
 
 interface AdminSidebarProps {
@@ -81,6 +82,12 @@ export default function AdminSidebar({ adminHash }: AdminSidebarProps) {
       href: `/admin/${adminHash}/notifications`,
       icon: Bell,
       color: 'text-indigo-400'
+    },
+    {
+      label: 'Site Banner',
+      href: `/admin/${adminHash}/site-banner`,
+      icon: Megaphone,
+      color: 'text-amber-400'
     },
     {
       label: 'Channel & Group Management',

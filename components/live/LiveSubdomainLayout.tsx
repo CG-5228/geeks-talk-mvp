@@ -4,6 +4,7 @@ import { usePathname } from 'next/navigation';
 import LiveNavbar from './LiveNavbar';
 import Header from '../Header';
 import { useStyledDialog } from '../ui/StyledDialog';
+import SiteAnnouncementProvider from '../SiteAnnouncementProvider';
 
 interface LiveSubdomainLayoutProps {
   children: React.ReactNode;
@@ -19,8 +20,31 @@ export default function LiveSubdomainLayout({ children }: LiveSubdomainLayoutPro
     // Check if we're on a live subdomain
     const hostname = window.location.hostname;
     const isLive = hostname.startsWith('live.');
+    // #region agent log
+    console.log('[LiveLayout] Hostname check:', {
+      hostname,
+      isLive,
+      willRenderBanner: isLive,
+    });
+    // #endregion
     setIsLiveSubdomain(isLive);
     setIsLoading(false);
+
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/bb9359b2-0268-40e1-8961-bb0e3cf8ee2b', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sessionId: 'debug-session',
+        runId: 'pre-fix',
+        hypothesisId: 'H2',
+        location: 'components/live/LiveSubdomainLayout.tsx:mount',
+        message: 'Live subdomain detection',
+        data: { hostname, isLive },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
   }, []);
 
   if (isLoading) {
@@ -58,8 +82,9 @@ export default function LiveSubdomainLayout({ children }: LiveSubdomainLayoutPro
 
   if (isLiveSubdomain) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-[#0a0b0d] via-[#0d0f10] to-[#0a0b0d]">
+      <div className="min-h-screen bg-gradient-to-br from-[#0a0b0d] via-[#0d0f10] to-[#0a0b0d] flex flex-col">
         <LiveNavbar onLogoClick={handleLogoClick} />
+        <SiteAnnouncementProvider scope="live" />
         <main className="flex-1 w-full">{children}</main>
         <DialogComponent />
       </div>
@@ -70,6 +95,7 @@ export default function LiveSubdomainLayout({ children }: LiveSubdomainLayoutPro
   return (
     <div className="min-h-screen bg-background">
       <Header />
+      <SiteAnnouncementProvider scope="main" />
       <main className="flex-1 w-full">{children}</main>
     </div>
   );

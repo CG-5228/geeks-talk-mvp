@@ -56,7 +56,8 @@ html {
 html, body {
   @apply h-full;
   overscroll-behavior-y: contain;
-  scrollbar-gutter: stable both-edges;
+  /* Reserve space only on the scrollbar side to avoid a visual gap on the left edge */
+  scrollbar-gutter: stable;
 }
 
 body {
