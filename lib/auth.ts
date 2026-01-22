@@ -170,7 +170,11 @@ export const authOptions: NextAuthOptions = {
             email: user.email,
             name: user.name,
             image: user.image,
-            id: user.id
+            id: user.id,
+            accountProvider: account.provider,
+            accountProviderAccountId: account.providerAccountId,
+            accountType: account.type,
+            accountKeys: Object.keys(account),
           });
           try {
             let dbUser = await db.user.findUnique({ where: { email: user.email } });
@@ -196,6 +200,76 @@ export const authOptions: NextAuthOptions = {
                   emailVerified: new Date(),
                 }
               });
+            }
+
+            // Ensure we track the linked Google account for this user
+            if (account?.providerAccountId) {
+              try {
+                const accountRecord = await db.account.upsert({
+                  where: {
+                    provider_providerAccountId: {
+                      provider: 'google',
+                      providerAccountId: account.providerAccountId,
+                    },
+                  },
+                  update: {
+                    userId: dbUser.id,
+                    access_token: (account as any).access_token ?? null,
+                    refresh_token: (account as any).refresh_token ?? null,
+                    expires_at: (account as any).expires_at ?? null,
+                    token_type: (account as any).token_type ?? null,
+                    scope: (account as any).scope ?? null,
+                    id_token: (account as any).id_token ?? null,
+                    session_state: (account as any).session_state ?? null,
+                  },
+                  create: {
+                    userId: dbUser.id,
+                    type: account.type ?? 'oauth',
+                    provider: 'google',
+                    providerAccountId: account.providerAccountId,
+                    access_token: (account as any).access_token ?? null,
+                    refresh_token: (account as any).refresh_token ?? null,
+                    expires_at: (account as any).expires_at ?? null,
+                    token_type: (account as any).token_type ?? null,
+                    scope: (account as any).scope ?? null,
+                    id_token: (account as any).id_token ?? null,
+                    session_state: (account as any).session_state ?? null,
+                  },
+                });
+                console.log('✅ Google account linked successfully:', {
+                  accountId: accountRecord.id,
+                  userId: dbUser.id,
+                  providerAccountId: account.providerAccountId,
+                });
+              } catch (accountError: any) {
+                console.error('❌ Error upserting Google account link:', accountError);
+                // If it's a unique constraint error, try to find and update existing account
+                if (accountError.code === 'P2002' || accountError.message?.includes('Unique constraint')) {
+                  try {
+                    // Try to find existing account and update userId
+                    const existingAccount = await db.account.findUnique({
+                      where: {
+                        provider_providerAccountId: {
+                          provider: 'google',
+                          providerAccountId: account.providerAccountId,
+                        },
+                      },
+                    });
+                    if (existingAccount && existingAccount.userId !== dbUser.id) {
+                      // Update the userId to link to current user
+                      await db.account.update({
+                        where: { id: existingAccount.id },
+                        data: { userId: dbUser.id },
+                      });
+                      console.log('✅ Updated existing Google account link to current user');
+                    }
+                  } catch (updateError) {
+                    console.error('❌ Error updating existing account:', updateError);
+                  }
+                }
+              }
+            } else {
+              console.warn('⚠️ Google OAuth account missing providerAccountId:', account);
             }
 
             (token as any).id = dbUser.id;

@@ -132,7 +132,10 @@ export default function SiteBannerPage() {
     }
   };
 
-  const saveAnnouncement = async (scope: 'MAIN' | 'LIVE', data: Partial<Announcement>) => {
+  const saveAnnouncement = async (
+    scope: 'MAIN' | 'LIVE',
+    data: Partial<Announcement> & { resetDismissals?: boolean }
+  ) => {
     setSaving(true);
     setSaveSuccess(false);
     setSaveError(null);

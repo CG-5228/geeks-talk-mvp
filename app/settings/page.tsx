@@ -59,7 +59,7 @@ export default function SettingsPage() {
               {activeSection === 'appearance' && <AppearanceSection />}
               {activeSection === 'notifications' && <NotificationsSection />}
               {activeSection === 'privacy' && <PrivacySection />}
-              {activeSection === 'account' && <AccountSection hasPassword={userData.hasPassword} />}
+              {activeSection === 'account' && <AccountSection />}
             </div>
           </main>
         </div>
