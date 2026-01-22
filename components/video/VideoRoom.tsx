@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from 'react';
-import { LocalParticipant } from 'livekit-client';
+import { LocalParticipant, ConnectionQuality } from 'livekit-client';
 import { useVideoRoom, ParticipantState, VideoQuality } from './useVideoRoom';
 import VideoGrid from './VideoGrid';
 import VideoControls from './VideoControls';
@@ -77,9 +77,9 @@ export default function VideoRoom({ roomName, onLeave, showSidebar = true }: Vid
 
   // Convert connection quality to string for controls
   const connectionQualityString = 
-    connectionQuality === 0 ? 'excellent' :
-    connectionQuality === 1 ? 'good' :
-    connectionQuality === 2 ? 'poor' : 'lost';
+    connectionQuality === ConnectionQuality.Excellent ? 'excellent' :
+    connectionQuality === ConnectionQuality.Good ? 'good' :
+    connectionQuality === ConnectionQuality.Poor ? 'poor' : 'lost';
 
   if (error) {
     console.error('VideoRoom error:', error);
