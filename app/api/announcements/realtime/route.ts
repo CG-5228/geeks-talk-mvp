@@ -153,7 +153,6 @@ export async function GET(req: Request) {
         };
 
         // Abort signal from client
-        // @ts-expect-error - Request may not have signal in some runtimes
         req.signal?.addEventListener('abort', close);
       },
     });
