@@ -247,7 +247,7 @@ export function useVideoRoom({
         facingMode: 'user',
       });
 
-      await roomRef.current.localParticipant.publishVideoTrack(track);
+      await roomRef.current.localParticipant.publishTrack(track);
       setLocalVideoTrack(track);
       setIsVideoEnabled(true);
       setError(null); // Clear any previous errors
@@ -288,7 +288,7 @@ export function useVideoRoom({
         autoGainControl: true,
       });
 
-      await roomRef.current.localParticipant.publishAudioTrack(track);
+      await roomRef.current.localParticipant.publishTrack(track);
       setLocalAudioTrack(track);
       setIsAudioEnabled(true);
       setError(null); // Clear any previous errors
@@ -329,7 +329,7 @@ export function useVideoRoom({
 
       if (tracks && tracks.length > 0) {
         const screenTrack = tracks[0] as LocalVideoTrack;
-        await roomRef.current.localParticipant.publishVideoTrack(screenTrack, {
+        await roomRef.current.localParticipant.publishTrack(screenTrack, {
           source: Track.Source.ScreenShare,
         });
         setScreenShareTrack(screenTrack);
