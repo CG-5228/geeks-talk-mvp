@@ -393,8 +393,6 @@ export function useVideoRoom({
         adaptiveStream: true,
         dynacast: true,
         publishDefaults: {
-          videoResolution: getVideoResolution(videoQuality),
-          videoCodec: 'vp8',
           audioPreset: {
             maxBitrate: 32000,
             priority: 'high',
