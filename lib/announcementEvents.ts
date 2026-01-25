@@ -17,7 +17,8 @@ export function addAnnouncementListener(listener: Listener): () => void {
 
 export function emitAnnouncementUpdate(scope: AnnouncementScope) {
   console.log(`[AnnouncementEvents] Emitting update for scope: ${scope}, listeners: ${listeners.size}`);
-  for (const listener of listeners) {
+  // Use Array.from to ensure compatibility with all TypeScript targets
+  for (const listener of Array.from(listeners)) {
     try {
       listener(scope);
     } catch (error) {
