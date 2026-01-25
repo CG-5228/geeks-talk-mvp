@@ -226,7 +226,7 @@ export function useVideoRoom({
       setIsConnected(false);
       // Only call onLeave if it was a client-requested disconnect (user clicked leave)
       // Don't auto-leave on connection errors - let user see the error and decide
-      if (reason === DisconnectReason.CLIENT_REQUESTED && onLeave) {
+      if (reason === DisconnectReason.CLIENT_INITIATED && onLeave) {
         onLeave();
       } else if (reason) {
         // For other disconnect reasons (errors, server disconnect, etc.), show error
