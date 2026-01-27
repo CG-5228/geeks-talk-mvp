@@ -229,16 +229,44 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
       setIsConnected(true);
       console.log('Successfully connected to LiveKit room');
       
-      // Log current participants
+      // Log current participants and set up any existing audio tracks
       console.log('Current participants:', roomInstance.remoteParticipants.size);
       roomInstance.remoteParticipants.forEach((participant, identity) => {
         console.log('Remote participant:', identity, 'Expected peer:', peerId);
-        console.log('Participant identity type:', typeof identity);
-        console.log('Expected peer ID type:', typeof peerId);
         console.log('Identity match:', identity === peerId);
-        if (identity === peerId) {
-          console.log('✅ Found expected peer in room!');
+        
+        // Set peer participant (in 1v1 room, there's only one other person)
+        if (identity === peerId || roomInstance.remoteParticipants.size === 1) {
+          console.log('✅ Found peer in room!');
           setPeerParticipant(participant);
+          
+          // Check for existing subscribed audio tracks
+          participant.audioTrackPublications.forEach((publication) => {
+            console.log('Existing audio publication:', {
+              trackSid: publication.trackSid,
+              isSubscribed: publication.isSubscribed,
+              hasTrack: !!publication.track,
+            });
+            
+            if (publication.isSubscribed && publication.track && publication.kind === 'audio') {
+              console.log('Setting up existing audio track from peer');
+              const track = publication.track;
+              const audioElement = track.attach() as HTMLAudioElement;
+              audioElement.style.display = 'none';
+              audioElement.volume = volumeEnabledRef.current ? 1 : 0;
+              audioElement.muted = !volumeEnabledRef.current;
+              audioElement.autoplay = true;
+              document.body.appendChild(audioElement);
+              (track as any).audioElement = audioElement;
+              
+              safePlayAudio(audioElement).then((success) => {
+                console.log('Existing audio track play result:', success);
+              });
+              
+              setPeerMicEnabled(true);
+              startPeerAudioMonitoring(track);
+            }
+          });
         }
       });
 
@@ -564,14 +592,29 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
       }
     });
 
-    // Monitor audio levels
+    // Monitor audio levels - handle ALL remote audio tracks (in 1v1 there's only one peer)
     roomInstance.on(RoomEvent.TrackSubscribed, (track, publication, participant) => {
-      if (track.kind === 'audio' && participant?.identity === peerId) {
-        console.log('Audio track subscribed for peer:', participant.identity);
+      console.log('[TrackSubscribed] Track received:', {
+        kind: track.kind,
+        participantIdentity: participant?.identity,
+        expectedPeerId: peerId,
+        isMatch: participant?.identity === peerId,
+      });
+      
+      // Handle audio tracks from any remote participant (handles peerId timing/matching issues)
+      if (track.kind === 'audio' && participant) {
+        console.log('Audio track subscribed for participant:', participant.identity);
+        
+        // Update peer participant if not set (handles timing issues)
+        if (!peerParticipant && participant.identity !== session?.user?.id) {
+          console.log('Setting peer participant from track subscription');
+          setPeerParticipant(participant as RemoteParticipant);
+        }
+        
         setPeerMicEnabled(true);
         
         // IMPORTANT: Attach the track to play audio through speakers
-        const audioElement = track.attach();
+        const audioElement = track.attach() as HTMLAudioElement;
         audioElement.style.display = 'none';
         
         // Set up audio element properties
@@ -580,13 +623,14 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
         audioElement.autoplay = true;
         
         document.body.appendChild(audioElement);
+        console.log('Audio element created and appended to body');
         
         // Use safe play audio utility which handles autoplay policy
         safePlayAudio(audioElement).then((success) => {
           if (success) {
-            console.log('Peer audio element playing');
+            console.log('Peer audio element playing successfully');
           } else {
-            console.log('Peer audio pending user interaction');
+            console.log('Peer audio pending user interaction - click anywhere to enable');
           }
         });
         
@@ -599,14 +643,22 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
     });
 
     roomInstance.on(RoomEvent.TrackUnsubscribed, (track, publication, participant) => {
-      if (track.kind === 'audio' && participant?.identity === peerId) {
-        console.log('Audio track unsubscribed for peer');
+      console.log('[TrackUnsubscribed] Track removed:', {
+        kind: track.kind,
+        participantIdentity: participant?.identity,
+      });
+      
+      if (track.kind === 'audio' && participant) {
+        console.log('Audio track unsubscribed for participant:', participant.identity);
         setPeerMicEnabled(false);
         setPeerAudioLevel(0);
         
         // Clean up audio element
         if ((track as any).audioElement) {
-          (track as any).audioElement.remove();
+          const audioEl = (track as any).audioElement as HTMLAudioElement;
+          audioEl.pause();
+          audioEl.srcObject = null;
+          audioEl.remove();
           delete (track as any).audioElement;
         }
         

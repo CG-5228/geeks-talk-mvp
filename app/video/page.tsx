@@ -1,59 +1,150 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useSession } from 'next-auth/react';
-import { Video, VideoOff, Mic, MicOff, Users, User, Copy, Check, ArrowLeft } from 'lucide-react';
+import { Video, Users, User, Copy, Check, ArrowLeft, Clock, X, Loader2 } from 'lucide-react';
 import VideoRoom from '@/components/video/VideoRoom';
 import VideoWaitingRoom from '@/components/video/VideoWaitingRoom';
 
-type ChatMode = 'select' | 'one-on-one' | 'group' | 'waiting' | 'in-call';
+type ChatMode = 'select' | 'one-on-one-queue' | 'one-on-one-matched' | 'group-create' | 'group-join' | 'waiting' | 'in-call';
 
 export default function VideoChatPage() {
   const { data: session } = useSession();
   const [chatMode, setChatMode] = useState<ChatMode>('select');
-  const [isVideoOn, setIsVideoOn] = useState(true);
-  const [isMicOn, setIsMicOn] = useState(true);
   const [roomName, setRoomName] = useState<string | null>(null);
   const [roomCode, setRoomCode] = useState<string | null>(null);
   const [joinRoomCode, setJoinRoomCode] = useState('');
   const [isJoining, setIsJoining] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [waitingTime, setWaitingTime] = useState(0);
+  const [pollInterval, setPollInterval] = useState<NodeJS.Timeout | null>(null);
+  const [peerId, setPeerId] = useState<string | null>(null);
 
-  // Generate room name
-  const generateRoomName = () => {
-    if (!session?.user?.id) return null;
-    const timestamp = Date.now();
-    const userId = session.user.id.replace(/[^a-zA-Z0-9-_]/g, '_');
-    return `video-${userId}-${timestamp}`;
-  };
+  // ============ ONE-ON-ONE RANDOM MATCHING ============
 
-  // Generate a shorter, shareable room code
-  const generateRoomCode = () => {
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    return Array.from({ length: 6 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
-  };
+  const handleStartOneOnOne = useCallback(async () => {
+    if (!session?.user?.id) {
+      setError('Please sign in to start a one-on-one call');
+      return;
+    }
 
-  const handleCreateGroupRoom = () => {
+    setError(null);
+    setChatMode('one-on-one-queue');
+    setWaitingTime(0);
+
+    try {
+      const response = await fetch('/api/video/random/queue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.matched) {
+          // Immediate match found
+          setRoomName(data.roomName);
+          setPeerId(data.peerId);
+          setChatMode('one-on-one-matched');
+        } else {
+          // Start polling for match
+          startPolling();
+        }
+      } else {
+        const errorData = await response.json();
+        setError(errorData.error || 'Failed to join queue');
+        setChatMode('select');
+      }
+    } catch (err) {
+      console.error('Error joining queue:', err);
+      setError('Connection error. Please try again.');
+      setChatMode('select');
+    }
+  }, [session?.user?.id]);
+
+  const startPolling = useCallback(() => {
+    const interval = setInterval(async () => {
+      try {
+        const response = await fetch('/api/video/random/queue');
+        if (response.ok) {
+          const data = await response.json();
+          if (data.matched) {
+            setRoomName(data.roomName);
+            setPeerId(data.peerId);
+            setChatMode('one-on-one-matched');
+            clearInterval(interval);
+            setPollInterval(null);
+          }
+        } else if (response.status === 429) {
+          clearInterval(interval);
+          setPollInterval(null);
+          setError('Too many requests. Please try again later.');
+          setChatMode('select');
+        }
+      } catch (err) {
+        console.error('Error polling for match:', err);
+      }
+    }, 2000);
+
+    setPollInterval(interval);
+  }, []);
+
+  const handleLeaveQueue = useCallback(async () => {
+    if (pollInterval) {
+      clearInterval(pollInterval);
+      setPollInterval(null);
+    }
+
+    try {
+      await fetch('/api/video/random/queue', { method: 'DELETE' });
+    } catch (err) {
+      console.error('Error leaving queue:', err);
+    }
+
+    setChatMode('select');
+    setWaitingTime(0);
+    setRoomName(null);
+    setPeerId(null);
+  }, [pollInterval]);
+
+  const handleJoinOneOnOneCall = useCallback(() => {
+    if (roomName) {
+      setChatMode('in-call');
+    }
+  }, [roomName]);
+
+  // ============ GROUP CHAT WITH CODES ============
+
+  const handleCreateGroupRoom = useCallback(async () => {
     if (!session?.user?.id) {
       setError('Please sign in to create a room');
       return;
     }
 
-    const newRoomName = generateRoomName();
-    const newRoomCode = generateRoomCode();
-    
-    if (newRoomName && newRoomCode) {
-      setRoomName(newRoomName);
-      setRoomCode(newRoomCode);
-      setChatMode('waiting');
-      setError(null);
-    } else {
-      setError('Failed to create room');
-    }
-  };
+    setError(null);
 
-  const handleJoinRoom = async () => {
+    try {
+      const response = await fetch('/api/video/room', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setRoomName(data.roomName);
+        setRoomCode(data.roomCode);
+        setChatMode('waiting');
+      } else {
+        const errorData = await response.json();
+        setError(errorData.error || 'Failed to create room');
+      }
+    } catch (err) {
+      console.error('Error creating room:', err);
+      setError('Connection error. Please try again.');
+    }
+  }, [session?.user?.id]);
+
+  const handleJoinRoom = useCallback(async () => {
     if (!joinRoomCode.trim()) {
       setError('Please enter a room code');
       return;
@@ -64,58 +155,89 @@ export default function VideoChatPage() {
       return;
     }
 
-    setIsJoining(true);
-    setError(null);
-
-    // For now, use the room code as room name (in production, you'd validate via API)
-    // Convert room code to a valid room name format
-    const roomNameFromCode = `video-room-${joinRoomCode.trim().toLowerCase()}`;
-    setRoomName(roomNameFromCode);
-    setRoomCode(joinRoomCode.trim().toUpperCase());
-    setChatMode('waiting');
-    setIsJoining(false);
-  };
-
-  const handleStartOneOnOne = () => {
-    // For one-on-one, we could implement matching similar to voice chat
-    // For now, create a room and let user invite someone
-    if (!session?.user?.id) {
-      setError('Please sign in to start a one-on-one call');
+    if (joinRoomCode.length !== 6) {
+      setError('Room code must be 6 characters');
       return;
     }
 
-    const newRoomName = generateRoomName();
-    const newRoomCode = generateRoomCode();
-    
-    if (newRoomName && newRoomCode) {
-      setRoomName(newRoomName);
-      setRoomCode(newRoomCode);
-      setChatMode('waiting');
-      setError(null);
-    }
-  };
+    setIsJoining(true);
+    setError(null);
 
-  const handleStartCall = () => {
+    try {
+      const response = await fetch(`/api/video/room?code=${joinRoomCode.toUpperCase()}`);
+      
+      if (response.ok) {
+        const data = await response.json();
+        setRoomName(data.roomName);
+        setRoomCode(data.roomCode);
+        setChatMode('waiting');
+      } else {
+        const errorData = await response.json();
+        setError(errorData.error || 'Room not found');
+      }
+    } catch (err) {
+      console.error('Error joining room:', err);
+      setError('Connection error. Please try again.');
+    } finally {
+      setIsJoining(false);
+    }
+  }, [joinRoomCode, session?.user?.id]);
+
+  const handleStartCall = useCallback(() => {
     if (roomName) {
       setChatMode('in-call');
     }
-  };
+  }, [roomName]);
 
-  const handleLeave = () => {
+  const handleLeave = useCallback(() => {
+    if (pollInterval) {
+      clearInterval(pollInterval);
+      setPollInterval(null);
+    }
+
     setChatMode('select');
     setRoomName(null);
     setRoomCode(null);
     setJoinRoomCode('');
+    setPeerId(null);
     setError(null);
-  };
+    setWaitingTime(0);
+  }, [pollInterval]);
 
-  const handleCopyRoomCode = () => {
+  const handleCopyRoomCode = useCallback(() => {
     if (roomCode) {
       navigator.clipboard.writeText(roomCode);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
+  }, [roomCode]);
+
+  // Update waiting time
+  useEffect(() => {
+    if (chatMode === 'one-on-one-queue') {
+      const timer = setInterval(() => {
+        setWaitingTime(prev => prev + 1);
+      }, 1000);
+      return () => clearInterval(timer);
+    }
+  }, [chatMode]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (pollInterval) {
+        clearInterval(pollInterval);
+      }
+    };
+  }, [pollInterval]);
+
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
+
+  // ============ RENDER VIEWS ============
 
   // In call - show VideoRoom
   if (chatMode === 'in-call' && roomName) {
@@ -126,7 +248,7 @@ export default function VideoChatPage() {
     );
   }
 
-  // Waiting room - show VideoWaitingRoom
+  // Waiting room for group chat
   if (chatMode === 'waiting' && roomName && roomCode) {
     return (
       <VideoWaitingRoom
@@ -139,7 +261,6 @@ export default function VideoChatPage() {
     );
   }
 
-  // Mode selection or join room
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
       <div className="max-w-7xl mx-auto px-4 py-8">
@@ -165,8 +286,8 @@ export default function VideoChatPage() {
           </div>
         )}
 
-        {chatMode === 'select' ? (
-          /* Mode Selection */
+        {/* Mode Selection */}
+        {chatMode === 'select' && (
           <div className="text-center">
             <div className="mb-8">
               <div className="w-32 h-32 mx-auto mb-6 bg-gradient-to-br from-purple-500/20 to-blue-500/20 rounded-full flex items-center justify-center">
@@ -178,9 +299,8 @@ export default function VideoChatPage() {
               </p>
             </div>
 
-            {/* Mode Selection Cards */}
             <div className="grid md:grid-cols-2 gap-6 max-w-3xl mx-auto mb-8">
-              {/* One-on-One */}
+              {/* One-on-One (Random) */}
               <button
                 onClick={handleStartOneOnOne}
                 disabled={!session?.user?.id}
@@ -189,9 +309,9 @@ export default function VideoChatPage() {
                 <div className="w-16 h-16 bg-blue-500/20 rounded-lg flex items-center justify-center mb-4">
                   <User className="h-8 w-8 text-blue-400" />
                 </div>
-                <h3 className="text-xl font-semibold text-white mb-2">One-on-One</h3>
+                <h3 className="text-xl font-semibold text-white mb-2">Random One-on-One</h3>
                 <p className="text-white/70">
-                  Start a private video call with one person. Perfect for personal conversations.
+                  Get matched randomly with another user for a private video call. Perfect for meeting new people.
                 </p>
               </button>
               
@@ -206,14 +326,14 @@ export default function VideoChatPage() {
                 </div>
                 <h3 className="text-xl font-semibold text-white mb-2">Group Call</h3>
                 <p className="text-white/70">
-                  Create a room and invite multiple people. Great for meetings and group discussions.
+                  Create a room and share the code with friends. Great for meetings and group discussions.
                 </p>
               </button>
             </div>
 
             {/* Join Room Section */}
             <div className="max-w-md mx-auto p-6 bg-white/5 border border-white/10 rounded-xl">
-              <h3 className="text-lg font-semibold text-white mb-4">Join a Room</h3>
+              <h3 className="text-lg font-semibold text-white mb-4">Join a Group Room</h3>
               <div className="flex gap-2">
                 <input
                   type="text"
@@ -245,7 +365,58 @@ export default function VideoChatPage() {
               </p>
             )}
           </div>
-        ) : null}
+        )}
+
+        {/* One-on-One Queue View */}
+        {chatMode === 'one-on-one-queue' && (
+          <div className="text-center py-12">
+            <div className="w-20 h-20 mx-auto mb-6 rounded-full bg-blue-500/20 flex items-center justify-center">
+              <Clock className="w-10 h-10 text-blue-400 animate-pulse" />
+            </div>
+            <h3 className="text-xl font-semibold text-white mb-2">
+              Looking for a partner...
+            </h3>
+            <p className="text-white/70 mb-4">
+              Waiting time: {formatTime(waitingTime)}
+            </p>
+            <p className="text-sm text-white/50 mb-6">
+              You'll be matched with another user as soon as they join.
+            </p>
+            <button
+              onClick={handleLeaveQueue}
+              className="px-6 py-2 border border-white/20 rounded-lg text-white hover:bg-white/10 transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        )}
+
+        {/* One-on-One Matched View */}
+        {chatMode === 'one-on-one-matched' && roomName && (
+          <div className="text-center py-12">
+            <div className="w-20 h-20 mx-auto mb-6 rounded-full bg-green-500/20 flex items-center justify-center">
+              <User className="w-10 h-10 text-green-500" />
+            </div>
+            <h3 className="text-xl font-semibold text-white mb-2">Match Found!</h3>
+            <p className="text-white/70 mb-6">
+              You've been matched for a 1-on-1 video call.
+            </p>
+            <div className="space-y-3 max-w-xs mx-auto">
+              <button
+                onClick={handleJoinOneOnOneCall}
+                className="w-full py-3 px-6 bg-green-500 text-white rounded-lg font-medium hover:bg-green-600 transition-colors"
+              >
+                Join Video Call
+              </button>
+              <button
+                onClick={handleLeaveQueue}
+                className="w-full py-2 px-6 border border-white/20 rounded-lg text-white hover:bg-white/10 transition-colors"
+              >
+                Decline
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
