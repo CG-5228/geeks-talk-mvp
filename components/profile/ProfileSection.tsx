@@ -37,7 +37,23 @@ export default function ProfileSection({
         setMessage({ type: 'success', text: 'Profile updated successfully' });
       } else {
         const data = await res.json().catch(() => ({}));
-        setMessage({ type: 'error', text: data.error || 'Failed to update profile' });
+        // Handle both string errors and error objects (defensive)
+        let errorText = 'Failed to update profile';
+        if (data.error) {
+          if (typeof data.error === 'string') {
+            errorText = data.error;
+          } else if (typeof data.error === 'object' && data.error !== null) {
+            // Handle Zod error objects
+            if (data.error.formErrors && Array.isArray(data.error.formErrors) && data.error.formErrors.length > 0) {
+              errorText = data.error.formErrors[0];
+            } else if (data.error.fieldErrors?.username && Array.isArray(data.error.fieldErrors.username) && data.error.fieldErrors.username.length > 0) {
+              errorText = data.error.fieldErrors.username[0];
+            } else {
+              errorText = 'Invalid input. Please check your username format.';
+            }
+          }
+        }
+        setMessage({ type: 'error', text: errorText });
       }
     } catch (error) {
       setMessage({ type: 'error', text: 'Network error' });

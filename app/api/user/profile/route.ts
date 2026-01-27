@@ -13,7 +13,13 @@ export async function PATCH(req: Request) {
   if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const body = await req.json().catch(() => ({}));
   const parsed = UsernameSchema.safeParse(body);
-  if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+  if (!parsed.success) {
+    const errors = parsed.error.flatten();
+    const errorMessage = errors.formErrors?.[0] || 
+      errors.fieldErrors?.username?.[0] || 
+      'Invalid username. Must be 3-24 characters and contain only letters, numbers, and underscores.';
+    return NextResponse.json({ error: errorMessage }, { status: 400 });
+  }
   const { username } = parsed.data;
   try {
     const updated = await db.user.update({

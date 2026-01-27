@@ -7,7 +7,6 @@ import {
   User,
   Mail,
   Calendar,
-  Key,
   AlertTriangle,
   Check,
   X,
@@ -45,7 +44,6 @@ export default function AdminManager({ className = '' }: AdminManagerProps) {
 
   // Enhanced UI states
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
-  const [copyNotification, setCopyNotification] = useState<string | null>(null);
   const [emailSuggestions, setEmailSuggestions] = useState<Array<{id: string, email: string, name: string}>>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [searchLoading, setSearchLoading] = useState(false);
@@ -144,12 +142,6 @@ export default function AdminManager({ className = '' }: AdminManagerProps) {
     }
   };
 
-  const copyAdminHash = (hash: string) => {
-    navigator.clipboard.writeText(hash);
-    setCopyNotification('Hash copied to clipboard!');
-    setTimeout(() => setCopyNotification(null), 2000);
-  };
-
   const searchUsers = async (email: string) => {
     if (email.length < 2) {
       setEmailSuggestions([]);
@@ -222,14 +214,6 @@ export default function AdminManager({ className = '' }: AdminManagerProps) {
 
   return (
     <div className={`bg-[#1a1b23] border border-white/20 rounded-lg p-6 ${className}`}>
-      {/* Copy Notification */}
-      {copyNotification && (
-        <div className="fixed top-4 right-4 bg-green-500/20 border border-green-500/30 text-green-400 px-4 py-2 rounded-lg shadow-lg z-50 flex items-center gap-2">
-          <Check className="h-4 w-4" />
-          {copyNotification}
-        </div>
-      )}
-
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-xl font-semibold text-white">Admin Management</h2>
         <button
@@ -259,17 +243,6 @@ export default function AdminManager({ className = '' }: AdminManagerProps) {
 
                 <div className="flex items-center gap-4 text-sm text-white/70">
                   <div className="flex items-center gap-1">
-                    <Key className="h-3 w-3" />
-                    <span>Hash: {admin.adminHash.substring(0, 8)}...</span>
-                    <button
-                      onClick={() => copyAdminHash(admin.adminHash)}
-                      className="text-[#00d9ff] hover:text-[#00d9ff]/80 transition-colors"
-                      title="Copy full hash"
-                    >
-                      Copy
-                    </button>
-                  </div>
-                  <div className="flex items-center gap-1">
                     <Calendar className="h-3 w-3" />
                     <span>Added: {new Date(admin.createdAt).toLocaleDateString()}</span>
                   </div>
@@ -279,17 +252,14 @@ export default function AdminManager({ className = '' }: AdminManagerProps) {
                       <span>By: {admin.grantedByUser.name}</span>
                     </div>
                   )}
+                  <div className="flex items-center gap-1 text-white/50">
+                    <Shield className="h-3 w-3" />
+                    <span>Session-based access (temporary hash)</span>
+                  </div>
                 </div>
               </div>
 
               <div className="flex items-center gap-2">
-                <button
-                  onClick={() => copyAdminHash(admin.adminHash)}
-                  className="p-2 text-blue-400 hover:bg-blue-500/20 rounded-lg transition-colors"
-                  title="Copy admin hash"
-                >
-                  <Key className="h-4 w-4" />
-                </button>
                 {showDeleteConfirm === admin.id ? (
                   <div className="flex items-center gap-2">
                     <button

@@ -100,7 +100,7 @@ export default function AccountSection() {
                 G
               </div>
               <div className="flex flex-col">
-                <span className="text-sm text-foreground">Google</span>
+              <span className="text-sm text-foreground">Google</span>
                 {accountInfo?.googleLinked && accountInfo.googleEmail && (
                   <span className="text-xs text-muted-foreground">
                     Connected as {accountInfo.googleEmail}
@@ -121,8 +121,8 @@ export default function AccountSection() {
                 onClick={handleConnectGoogle}
                 className="text-xs px-3 py-1.5 rounded-md bg-muted/20 hover:bg-muted/30 transition text-foreground"
               >
-                Connect
-              </button>
+              Connect
+            </button>
             )}
           </div>
           <div className="flex items-center justify-between p-4 rounded-lg border border-border/20 bg-card/30">

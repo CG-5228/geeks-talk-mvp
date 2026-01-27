@@ -77,15 +77,15 @@ export default function Hero() {
           <button
             onClick={() => {
               const { protocol, host } = window.location;
-              let target = `${protocol}//live.${host}`;
+              let target = `${protocol}//live.${host}/text`;
               // Handle localhost specially: live.localhost:3000
               if (host.includes('localhost')) {
                 const port = host.split(':')[1] ? `:${host.split(':')[1]}` : '';
-                target = `${protocol}//live.localhost${port}`;
+                target = `${protocol}//live.localhost${port}/text`;
               }
-              // If already on live subdomain, go to root of live
+              // If already on live subdomain, go to /text
               if (host.startsWith('live.')) {
-                target = `${protocol}//${host}`;
+                target = `${protocol}//${host}/text`;
               }
               window.location.href = target;
             }}

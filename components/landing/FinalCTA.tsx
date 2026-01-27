@@ -1,5 +1,4 @@
 "use client";
-import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { ArrowRight, Check, Users, MessageSquare, Mic } from 'lucide-react';
 
@@ -50,13 +49,26 @@ export default function FinalCTA() {
             developers, and tech enthusiasts from around the world.
           </p>
           
-          <Link
-            href="/live"
+          <button
+            onClick={() => {
+              const { protocol, host } = window.location;
+              let target = `${protocol}//live.${host}/text`;
+              // Handle localhost specially: live.localhost:3000
+              if (host.includes('localhost')) {
+                const port = host.split(':')[1] ? `:${host.split(':')[1]}` : '';
+                target = `${protocol}//live.localhost${port}/text`;
+              }
+              // If already on live subdomain, go to /text
+              if (host.startsWith('live.')) {
+                target = `${protocol}//${host}/text`;
+              }
+              window.location.href = target;
+            }}
             className="group inline-flex items-center gap-3 px-10 py-5 bg-primary hover:bg-primary/90 text-white font-bold text-xl rounded-2xl transition-all duration-300 shadow-2xl hover:shadow-primary/25 hover:scale-105 mb-8"
           >
             Start Chatting Free
             <ArrowRight className="w-6 h-6 group-hover:translate-x-1 transition-transform" />
-          </Link>
+          </button>
           
           <p className="text-white/60 text-sm">
             Free forever. No credit card required.

@@ -17,6 +17,7 @@ import {
   Activity
 } from 'lucide-react';
 import { Room, RoomEvent, RemoteParticipant, LocalParticipant, ExternalE2EEKeyProvider } from 'livekit-client';
+import { initializeUserInteraction, safePlayAudio, setInteracted } from '@/lib/audioUtils';
 import { 
   generateX25519Keypair, 
   deriveSharedSecret, 
@@ -180,6 +181,10 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
   const connectToRoom = async () => {
     try {
       console.log('Getting LiveKit token for room:', roomName);
+      
+      // Mark user as having interacted (they clicked to join)
+      setInteracted();
+      initializeUserInteraction();
       
       // Get LiveKit token
       const tokenResponse = await fetch(`/api/livekit/token?roomName=${roomName}`);
@@ -470,9 +475,9 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
       roomInstance.localParticipant.setMicrophoneEnabled(false).then(() => {
         updateMicEnabled(false);
         console.log('Microphone initialized as muted');
-      }).catch(error => {
+        }).catch(error => {
         console.error('Failed to initialize microphone:', error);
-      });
+        });
     });
 
     roomInstance.on(RoomEvent.Disconnected, () => {
@@ -515,7 +520,9 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
                 document.body.appendChild(audioElement);
                 (track as any).audioElement = audioElement;
                 
-                audioElement.play().catch(err => console.warn('Play error:', err));
+                safePlayAudio(audioElement).then((success) => {
+                  if (!success) console.log('Audio pending user interaction');
+                });
                 startPeerAudioMonitoring(track);
               }
             }, 100);
@@ -574,25 +581,14 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
         
         document.body.appendChild(audioElement);
         
-        // Ensure audio plays (with retry)
-        const playAudio = async () => {
-          try {
-            await audioElement.play();
+        // Use safe play audio utility which handles autoplay policy
+        safePlayAudio(audioElement).then((success) => {
+          if (success) {
             console.log('Peer audio element playing');
-          } catch (error) {
-            console.warn('Failed to play peer audio initially, will retry:', error);
-            // Retry after user interaction or after a delay
-            setTimeout(async () => {
-              try {
-                await audioElement.play();
-                console.log('Peer audio element playing after retry');
-              } catch (retryError) {
-                console.error('Failed to play peer audio after retry:', retryError);
-              }
-            }, 1000);
+          } else {
+            console.log('Peer audio pending user interaction');
           }
-        };
-        playAudio();
+        });
         
         // Store reference for cleanup
         (track as any).audioElement = audioElement;
@@ -840,16 +836,16 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
       if (!hasBeenInitialized) {
         console.log('E2EE ready, initializing microphone...');
         const initMic = async () => {
-          try {
+        try {
             await room.localParticipant.setMicrophoneEnabled(false);
             updateMicEnabled(false);
             console.log('Microphone initialized as muted');
-          } catch (error) {
+        } catch (error) {
             console.error('Failed to initialize microphone:', error);
-          }
-        };
+        }
+      };
         initMic();
-      }
+    }
     }
   }, [e2eeStatus, room]);
 
@@ -1072,7 +1068,7 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
         setTimeout(async () => {
           if (room && room.localParticipant.audioTrackPublications.size > 0) {
             await startLocalAudioMonitoring(room);
-          } else {
+      } else {
             // Retry after a bit more time
             setTimeout(async () => {
               if (room && room.localParticipant.audioTrackPublications.size > 0) {
@@ -1087,7 +1083,7 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
         if (animationFrameRef.current) {
           cancelAnimationFrame(animationFrameRef.current);
           animationFrameRef.current = null;
-        }
+      }
       }
       
     } catch (error) {

@@ -30,13 +30,31 @@ export default function VideoTile({
 
   // Attach video track to video element
   useEffect(() => {
+    console.log('[VideoTile] useEffect triggered for:', participantName, {
+      hasVideoRef: !!videoRef.current,
+      hasVideoTrack: !!videoTrack,
+      isVideoEnabled,
+      trackKind: videoTrack?.kind,
+    });
+    
     if (videoRef.current && videoTrack) {
-      videoTrack.attach(videoRef.current);
+      console.log('[VideoTile] Attaching video track for:', participantName);
+      const elements = videoTrack.attach(videoRef.current);
+      console.log('[VideoTile] Track attached, elements:', elements);
+      
+      // Force play for remote videos
+      if (!isLocal && videoRef.current) {
+        videoRef.current.play()
+          .then(() => console.log('[VideoTile] Video playing for:', participantName))
+          .catch((err) => console.warn('[VideoTile] Video play failed:', err));
+      }
+      
       return () => {
+        console.log('[VideoTile] Detaching video track for:', participantName);
         videoTrack.detach();
       };
     }
-  }, [videoTrack]);
+  }, [videoTrack, participantName, isLocal, isVideoEnabled]);
 
   const getQualityIcon = (quality: ConnectionQuality) => {
     switch (quality) {

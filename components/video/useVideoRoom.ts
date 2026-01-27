@@ -18,6 +18,7 @@ import {
   ConnectionQuality,
   DisconnectReason,
 } from 'livekit-client';
+import { initializeUserInteraction, safePlayAudio, setInteracted } from '@/lib/audioUtils';
 
 export type VideoQuality = 'low' | 'sd' | 'hd';
 
@@ -78,6 +79,10 @@ export function useVideoRoom({
   };
 
   const addParticipant = (participant: RemoteParticipant) => {
+    console.log('[addParticipant] Adding participant:', participant.identity);
+    console.log('[addParticipant] Video tracks:', participant.videoTrackPublications.size);
+    console.log('[addParticipant] Audio tracks:', participant.audioTrackPublications.size);
+    
     const state: ParticipantState = {
       participant,
       videoTrack: null,
@@ -87,18 +92,54 @@ export function useVideoRoom({
       connectionQuality: ConnectionQuality.Excellent,
     };
 
-    // Check for existing tracks
+    // Check for existing subscribed video tracks
     participant.videoTrackPublications.forEach((publication) => {
-      if (publication.track) {
+      console.log('[addParticipant] Video publication:', {
+        trackSid: publication.trackSid,
+        isSubscribed: publication.isSubscribed,
+        hasTrack: !!publication.track,
+        isMuted: publication.isMuted
+      });
+      if (publication.track && publication.isSubscribed) {
         state.videoTrack = publication.track as RemoteVideoTrack;
         state.isVideoEnabled = !publication.isMuted;
+        console.log('[addParticipant] Set video track for:', participant.identity);
       }
     });
 
+    // Check for existing subscribed audio tracks
     participant.audioTrackPublications.forEach((publication) => {
-      if (publication.track) {
-        state.audioTrack = publication.track as RemoteAudioTrack;
+      console.log('[addParticipant] Audio publication:', {
+        trackSid: publication.trackSid,
+        isSubscribed: publication.isSubscribed,
+        hasTrack: !!publication.track,
+        isMuted: publication.isMuted
+      });
+      if (publication.track && publication.isSubscribed) {
+        const track = publication.track;
+        state.audioTrack = track as RemoteAudioTrack;
         state.isAudioEnabled = !publication.isMuted;
+        
+        // Create audio element and attach the track
+        const audioElement = track.attach() as HTMLAudioElement;
+        audioElement.style.display = 'none';
+        audioElement.autoplay = true;
+        audioElement.volume = 1;
+        document.body.appendChild(audioElement);
+        
+        // Store reference for cleanup
+        (track as any)._audioElement = audioElement;
+        
+        // Use safe play audio utility
+        safePlayAudio(audioElement).then((success) => {
+          if (success) {
+            console.log('[addParticipant] Audio playing for:', participant.identity);
+          } else {
+            console.log('[addParticipant] Audio pending user interaction for:', participant.identity);
+          }
+        });
+        
+        console.log('[addParticipant] Set audio track for:', participant.identity);
       }
     });
 
@@ -121,8 +162,27 @@ export function useVideoRoom({
     } else if (track.kind === 'audio') {
       state.audioTrack = track as RemoteAudioTrack;
       state.isAudioEnabled = true;
-      // Attach audio track to play sound
-      track.attach();
+      
+      // Create audio element and attach the track
+      const audioElement = track.attach() as HTMLAudioElement;
+      audioElement.style.display = 'none';
+      audioElement.autoplay = true;
+      audioElement.volume = 1;
+      document.body.appendChild(audioElement);
+      
+      // Store reference for cleanup
+      (track as any)._audioElement = audioElement;
+      
+      console.log(`[handleTrackSubscribed] Audio element created for: ${participant.identity}`);
+      
+      // Use safe play audio utility which handles autoplay policy
+      safePlayAudio(audioElement).then((success) => {
+        if (success) {
+          console.log(`[handleTrackSubscribed] Audio playing for: ${participant.identity}`);
+        } else {
+          console.log(`[handleTrackSubscribed] Audio pending user interaction for: ${participant.identity}`);
+        }
+      });
     }
 
     participantsRef.current.set(participant.identity, state);
@@ -138,6 +198,14 @@ export function useVideoRoom({
       state.videoTrack = null;
       state.isVideoEnabled = false;
     } else if (track.kind === 'audio') {
+      // Clean up audio element
+      if ((track as any)._audioElement) {
+        const audioEl = (track as any)._audioElement as HTMLAudioElement;
+        audioEl.pause();
+        audioEl.srcObject = null;
+        audioEl.remove();
+        delete (track as any)._audioElement;
+      }
       track.detach();
       state.audioTrack = null;
       state.isAudioEnabled = false;
@@ -170,6 +238,16 @@ export function useVideoRoom({
   };
 
   const setupRoomEventListeners = (roomInstance: Room) => {
+    // Local track published
+    roomInstance.on(RoomEvent.LocalTrackPublished, (publication) => {
+      console.log('Local track published:', publication.kind, publication.trackSid);
+    });
+
+    // Local track unpublished
+    roomInstance.on(RoomEvent.LocalTrackUnpublished, (publication) => {
+      console.log('Local track unpublished:', publication.kind, publication.trackSid);
+    });
+
     // Participant connected
     roomInstance.on(RoomEvent.ParticipantConnected, (participant: RemoteParticipant) => {
       console.log('Participant connected:', participant.identity);
@@ -184,7 +262,14 @@ export function useVideoRoom({
 
     // Track subscribed
     roomInstance.on(RoomEvent.TrackSubscribed, (track, publication, participant) => {
-      console.log('Track subscribed:', track.kind, participant.identity);
+      console.log('[TrackSubscribed] Track subscribed:', {
+        kind: track.kind,
+        participant: participant.identity,
+        trackSid: track.sid,
+        source: track.source,
+        publicationTrackSid: publication.trackSid,
+        isMuted: publication.isMuted,
+      });
       if (participant instanceof RemoteParticipant) {
         handleTrackSubscribed(track, participant);
       }
@@ -242,12 +327,17 @@ export function useVideoRoom({
         return;
       }
 
+      console.log('[enableLocalVideo] Creating local video track with quality:', videoQuality);
       const track = await createLocalVideoTrack({
         resolution: getVideoResolution(videoQuality),
         facingMode: 'user',
       });
+      console.log('[enableLocalVideo] Local video track created:', track.sid);
 
-      await roomRef.current.localParticipant.publishTrack(track);
+      console.log('[enableLocalVideo] Publishing video track...');
+      const publication = await roomRef.current.localParticipant.publishTrack(track);
+      console.log('[enableLocalVideo] Video track published:', publication.trackSid);
+      
       setLocalVideoTrack(track);
       setIsVideoEnabled(true);
       setError(null); // Clear any previous errors
@@ -282,13 +372,18 @@ export function useVideoRoom({
         return;
       }
 
+      console.log('[enableLocalAudio] Creating local audio track...');
       const track = await createLocalAudioTrack({
         echoCancellation: true,
         noiseSuppression: true,
         autoGainControl: true,
       });
+      console.log('[enableLocalAudio] Local audio track created:', track.sid);
 
-      await roomRef.current.localParticipant.publishTrack(track);
+      console.log('[enableLocalAudio] Publishing audio track...');
+      const publication = await roomRef.current.localParticipant.publishTrack(track);
+      console.log('[enableLocalAudio] Audio track published:', publication.trackSid);
+      
       setLocalAudioTrack(track);
       setIsAudioEnabled(true);
       setError(null); // Clear any previous errors
@@ -362,6 +457,10 @@ export function useVideoRoom({
       setError(null);
       console.log('[useVideoRoom] Starting connection to room:', roomName);
       
+      // Mark user as having interacted (they clicked to join)
+      setInteracted();
+      initializeUserInteraction();
+      
       // Get LiveKit token
       console.log('[useVideoRoom] Fetching token from API...');
       const tokenResponse = await fetch(`/api/video/token?roomName=${roomName}`);
@@ -428,6 +527,12 @@ export function useVideoRoom({
       roomRef.current = roomInstance;
       setIsConnected(true);
       console.log('[useVideoRoom] Successfully connected to LiveKit room');
+
+      // Add existing participants that are already in the room
+      roomInstance.remoteParticipants.forEach((participant) => {
+        console.log('[useVideoRoom] Adding existing participant:', participant.identity);
+        addParticipant(participant);
+      });
 
       // Enable local video and audio if requested
       // Wait a bit for connection to stabilize

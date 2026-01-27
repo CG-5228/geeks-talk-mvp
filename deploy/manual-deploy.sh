@@ -14,7 +14,7 @@ npm prune --omit=dev
 # Create artifact
 echo "📦 Creating deployment artifact..."
 mkdir -p artifact
-cp -r .next next.config.* package.json package-lock.json node_modules public prisma artifact/ 2>/dev/null || true
+cp -r .next next.config.* package.json package-lock.json node_modules public prisma scripts artifact/ 2>/dev/null || true
 tar -C artifact -czf app.tgz .
 
 # Upload to server
@@ -34,9 +34,26 @@ tar -C /var/www/geekstalk/releases/$ts -xzf /var/www/geekstalk/upload/$ts.tgz
 # Link environment file
 ln -sfn /var/www/geekstalk/shared/.env /var/www/geekstalk/releases/$ts/.env
 
-# Run database migrations
+# Run database migrations with automatic baseline handling
 cd /var/www/geekstalk/releases/$ts
-npx prisma migrate deploy
+if [ -f "scripts/auto-migrate.sh" ]; then
+  echo "🔧 Running automatic migration script..."
+  bash scripts/auto-migrate.sh
+else
+  echo "⚠️  Auto-migrate script not found, using fallback..."
+  npx prisma migrate deploy || {
+    # If it fails with P3005, baseline and retry
+    if npx prisma migrate deploy 2>&1 | grep -q "P3005\|database schema is not empty"; then
+      echo "📊 Baselines existing migrations..."
+      npx prisma migrate resolve --applied 20251009171552_nextauth_init || true
+      npx prisma migrate resolve --applied 20251009171918_username_optional || true
+      npx prisma migrate resolve --applied 20251009175159_follow_model || true
+      npx prisma migrate resolve --applied 20251010123000_room_live_fields || true
+      npx prisma migrate deploy
+    fi
+  }
+  npx prisma generate
+fi
 
 # Ensure Redis is running (required for E2EE 1v1 random voice chat)
 sudo systemctl start redis-server || echo "Redis already running"

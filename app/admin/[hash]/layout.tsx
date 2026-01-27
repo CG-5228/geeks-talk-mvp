@@ -14,20 +14,27 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   useEffect(() => {
     const validateAccess = async () => {
       try {
-        const response = await fetch('/api/admin/check');
-        const data = await response.json();
+        // First, validate the hash in the URL
+        const validateResponse = await fetch(`/api/admin/validate-hash?hash=${encodeURIComponent(hash)}`);
+        const validateData = await validateResponse.json();
         
-        if (!data.isAdmin || !data.adminHash) {
-          router.push('/');
+        if (!validateData.valid) {
+          // Hash is invalid or expired, get a new one
+          const checkResponse = await fetch('/api/admin/check');
+          const checkData = await checkResponse.json();
+          
+          if (!checkData.isAdmin || !checkData.adminHash) {
+            router.push('/');
+            return;
+          }
+          
+          // Redirect to the new hash
+          router.push(`/admin/${checkData.adminHash}`);
           return;
         }
         
-        if (data.adminHash !== hash) {
-          router.push(`/admin/${data.adminHash}`);
-          return;
-        }
-        
-        setAdminHash(data.adminHash);
+        // Hash is valid, set it
+        setAdminHash(hash);
         setIsValid(true);
       } catch (error) {
         console.error('Failed to validate admin access:', error);

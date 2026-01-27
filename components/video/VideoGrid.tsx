@@ -32,6 +32,20 @@ export default function VideoGrid({
       all.push(localParticipant);
     }
     all.push(...participants);
+    
+    console.log('[VideoGrid] All participants:', {
+      count: all.length,
+      hasLocal: !!localParticipant,
+      remoteCount: participants.length,
+      participants: all.map(p => ({
+        identity: p.participant.identity,
+        hasVideo: !!p.videoTrack,
+        hasAudio: !!p.audioTrack,
+        isVideoEnabled: p.isVideoEnabled,
+        isAudioEnabled: p.isAudioEnabled,
+      }))
+    });
+    
     return all;
   }, [participants, localParticipant]);
 

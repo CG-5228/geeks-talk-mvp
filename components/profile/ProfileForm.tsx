@@ -12,7 +12,20 @@ export default function ProfileForm({ initialUsername, email }: { initialUsernam
     const res = await fetch('/api/user/profile', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username }) });
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
-      setError(data.error || 'Failed to update');
+      // Handle both string errors and error objects (defensive)
+      let errorText = 'Failed to update';
+      if (data.error) {
+        if (typeof data.error === 'string') {
+          errorText = data.error;
+        } else if (typeof data.error === 'object' && data.error !== null) {
+          if (data.error.formErrors && Array.isArray(data.error.formErrors) && data.error.formErrors.length > 0) {
+            errorText = data.error.formErrors[0];
+          } else if (data.error.fieldErrors?.username && Array.isArray(data.error.fieldErrors.username) && data.error.fieldErrors.username.length > 0) {
+            errorText = data.error.fieldErrors.username[0];
+          }
+        }
+      }
+      setError(errorText);
     } else {
       setSavedAt(Date.now());
     }

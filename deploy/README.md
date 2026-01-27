@@ -106,6 +106,52 @@ npx prisma migrate status
 npx prisma migrate deploy
 ```
 
+### Fix missing SiteAnnouncement table:
+If you see an error about `SiteAnnouncement` table not existing on the server:
+
+**Option 1: Quick Fix (Recommended)**
+```bash
+# SSH into your server
+ssh ubuntu@YOUR_SERVER_IP
+
+# Navigate to current deployment
+cd /var/www/geekstalk/current
+
+# Run the quick fix script
+bash scripts/quick-fix-migration.sh
+```
+
+**Option 2: Manual Fix**
+If you see the error "The database schema is not empty" (P3005):
+```bash
+# SSH into your server
+ssh ubuntu@YOUR_SERVER_IP
+
+# Navigate to current deployment
+cd /var/www/geekstalk/current
+
+# Mark existing migrations as applied (baseline)
+npx prisma migrate resolve --applied 20251009171552_nextauth_init
+npx prisma migrate resolve --applied 20251009171918_username_optional
+npx prisma migrate resolve --applied 20251009175159_follow_model
+npx prisma migrate resolve --applied 20251010123000_room_live_fields
+
+# Now deploy the SiteAnnouncement migration
+npx prisma migrate deploy
+
+# Generate Prisma client
+npx prisma generate
+
+# Restart the service
+sudo systemctl restart geekstalk
+```
+
+**Option 3: Interactive Baseline**
+```bash
+# Use the interactive baseline script
+bash scripts/baseline-database.sh
+```
+
 ## 📁 Directory Structure
 
 ```
