@@ -70,25 +70,19 @@ jobs:
             # Link environment file
             ln -sfn /var/www/geekstalk/shared/.env /var/www/geekstalk/releases/$ts/.env
 
-            # Run database migrations with automatic baseline handling
+            # Run database migrations safely (NO automatic baseline - prevents data loss)
             cd /var/www/geekstalk/releases/$ts
             if [ -f "scripts/auto-migrate.sh" ]; then
-              echo "🔧 Running automatic migration script..."
+              echo "🔧 Running safe migration script..."
               bash scripts/auto-migrate.sh
             else
-              echo "⚠️  Auto-migrate script not found, using fallback..."
-              # Try normal deploy first
-              if ! npx prisma migrate deploy 2>&1; then
-                # If it fails with P3005, baseline and retry
-                if npx prisma migrate deploy 2>&1 | grep -q "P3005\|database schema is not empty"; then
-                  echo "📊 Baselines existing migrations..."
-                  npx prisma migrate resolve --applied 20251009171552_nextauth_init || true
-                  npx prisma migrate resolve --applied 20251009171918_username_optional || true
-                  npx prisma migrate resolve --applied 20251009175159_follow_model || true
-                  npx prisma migrate resolve --applied 20251010123000_room_live_fields || true
-                  npx prisma migrate deploy || echo "Migration deploy completed with warnings"
-                fi
-              fi
+              echo "⚠️  Auto-migrate script not found, using safe fallback..."
+              # Try normal deploy - DO NOT baseline automatically
+              npx prisma migrate deploy 2>&1 || {
+                echo "⚠️  Migration deploy had issues (may be P3005 - database not empty)"
+                echo "    This is expected if database was created with 'prisma db push'"
+                echo "    The application will continue to work with existing schema."
+              }
               npx prisma generate
             fi
 

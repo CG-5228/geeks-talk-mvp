@@ -1,11 +1,14 @@
 #!/bin/bash
-# Automatic migration script that handles baseline and deployment
-# This script is safe to run multiple times and handles edge cases
+# Safe automatic migration script
+# This script prioritizes DATA SAFETY over automatic fixes
+# 
+# IMPORTANT: This script will NOT automatically mark migrations as applied
+# because doing so can cause data loss if the database was modified with
+# `prisma db push` or manually.
 
-# Set error handling - we'll handle migration errors manually
 set -e
 
-echo "🔧 Running automatic database migrations..."
+echo "🔧 Running safe database migrations..."
 
 # Check if .env exists
 if [ ! -f .env ]; then
@@ -17,80 +20,61 @@ if [ ! -f .env ]; then
     fi
 fi
 
-# Function to check if migration table exists
-check_migration_table() {
-    npx prisma db execute --stdin <<< "SELECT COUNT(*) FROM \"_prisma_migrations\";" 2>/dev/null | grep -q "1" && return 0 || return 1
-}
-
-# Function to baseline existing migrations
-baseline_migrations() {
-    echo "📊 Database needs baseline. Marking existing migrations as applied..."
-    
-    # List of migrations to baseline (in order)
-    migrations=(
-        "20251009171552_nextauth_init"
-        "20251009171918_username_optional"
-        "20251009175159_follow_model"
-        "20251010123000_room_live_fields"
-    )
-    
-    for migration in "${migrations[@]}"; do
-        if [ -d "prisma/migrations/$migration" ]; then
-            echo "  ✓ Marking $migration as applied..."
-            npx prisma migrate resolve --applied "$migration" 2>/dev/null || echo "    (already marked or not needed)"
-        fi
-    done
-}
-
 # Try to deploy migrations
 echo "🚀 Attempting to deploy migrations..."
-set +e  # Temporarily disable exit on error for migration check
+set +e  # Temporarily disable exit on error
 migrate_output=$(npx prisma migrate deploy 2>&1)
 migrate_exit=$?
 set -e  # Re-enable exit on error
 
-# Check if it succeeded
-if echo "$migrate_output" | grep -q "All migrations have been successfully applied\|No pending migrations"; then
-    echo "✅ Migrations deployed successfully!"
-    npx prisma generate
-    exit 0
-fi
+echo "Migration output:"
+echo "$migrate_output"
 
-# Check if error is P3005 (database schema not empty)
-if echo "$migrate_output" | grep -q "P3005\|database schema is not empty"; then
-    echo "⚠️  Database schema not empty error detected (P3005)"
-    echo "📊 Attempting to baseline database..."
-    
-    # Baseline existing migrations
-    baseline_migrations
-    
-    # Try deploying again
-    echo "🚀 Deploying remaining migrations..."
-    set +e  # Temporarily disable exit on error
-    deploy_output=$(npx prisma migrate deploy 2>&1)
-    deploy_exit=$?
-    set -e  # Re-enable exit on error
-    
-    if [ $deploy_exit -eq 0 ] || echo "$deploy_output" | grep -q "All migrations have been successfully applied\|No pending migrations"; then
-        echo "✅ Migrations deployed successfully after baseline!"
-    else
-        echo "⚠️  Migration deploy output:"
-        echo "$deploy_output"
-        echo "⚠️  This might be okay if all migrations are already applied. Continuing..."
-    fi
+# Check if it succeeded
+if [ $migrate_exit -eq 0 ]; then
+    echo "✅ Migrations deployed successfully!"
+elif echo "$migrate_output" | grep -q "All migrations have been successfully applied\|No pending migrations"; then
+    echo "✅ All migrations already applied!"
+elif echo "$migrate_output" | grep -q "P3005\|database schema is not empty"; then
+    echo ""
+    echo "⚠️  Database schema not empty error (P3005)"
+    echo ""
+    echo "This happens when the database was modified outside of Prisma migrations"
+    echo "(e.g., using 'prisma db push' or manual SQL)."
+    echo ""
+    echo "⚠️  AUTOMATIC BASELINE DISABLED FOR DATA SAFETY"
+    echo ""
+    echo "The application will continue to work with the existing schema."
+    echo "If you need to sync migrations, please do it manually:"
+    echo ""
+    echo "  1. SSH into the server"
+    echo "  2. cd /var/www/geekstalk/current"
+    echo "  3. Run: npx prisma migrate resolve --applied <migration_name>"
+    echo ""
+    echo "Available migrations that may need to be marked as applied:"
+    ls -1 prisma/migrations/ | grep -v migration_lock.toml | while read dir; do
+        echo "    - $dir"
+    done
+    echo ""
 else
-    # Other error - might be connection issue or other problem
+    echo ""
     echo "⚠️  Migration error (not P3005):"
     echo "$migrate_output"
-    echo "⚠️  Continuing deployment anyway..."
+    echo ""
+    echo "The application will continue - existing schema should still work."
 fi
 
-# Generate Prisma client (always do this)
+# Always generate Prisma client (this is safe and necessary)
+echo ""
 echo "🔨 Generating Prisma client..."
 npx prisma generate || {
     echo "❌ Failed to generate Prisma client!"
     exit 1
 }
 
+echo ""
 echo "✅ Migration process complete!"
+echo ""
+echo "Note: If you see P3005 errors above, the database is working but"
+echo "      migrations are not in sync. This is safe but should be fixed manually."
 exit 0

@@ -106,6 +106,32 @@ npx prisma migrate status
 npx prisma migrate deploy
 ```
 
+## ⚠️ IMPORTANT: Database Safety Guidelines
+
+**NEVER use `prisma db push` in production!** It can cause data loss.
+
+- `prisma db push` - DANGEROUS: Modifies database without migration history, can drop tables/data
+- `prisma migrate deploy` - SAFE: Only applies pending migrations, non-destructive
+
+**If migrations fail with P3005 ("database schema not empty"):**
+
+This means the database was modified outside of Prisma migrations. The deployment will:
+1. Log a warning but continue
+2. Generate the Prisma client
+3. The application will work with the existing schema
+
+**Manual sync (ONLY if you're sure it's safe):**
+```bash
+# CAUTION: Only do this if you're 100% sure the database matches the migration
+# Incorrect use can cause DATA LOSS
+
+# Check what's different
+npx prisma migrate status
+
+# If tables already exist and match the migration:
+npx prisma migrate resolve --applied <migration_name>
+```
+
 ### Fix missing SiteAnnouncement table:
 If you see an error about `SiteAnnouncement` table not existing on the server:
 
