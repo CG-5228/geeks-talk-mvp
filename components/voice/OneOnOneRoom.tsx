@@ -197,25 +197,49 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
       const { token, url } = await tokenResponse.json();
       console.log('Got LiveKit token, URL:', url);
 
-      // Create E2EE key provider
-      const e2eeKeyProvider = new ExternalE2EEKeyProvider();
-      setE2eeKeyProvider(e2eeKeyProvider);
+      // Check if E2EE is supported BEFORE creating the room
+      const supportInfo = getE2EESupportInfo();
+      const e2eeSupported = supportInfo.insertableStreams && supportInfo.webCrypto && supportInfo.x25519;
+      console.log('E2EE support check:', { e2eeSupported, supportInfo });
+
+      let roomInstance: Room;
       
-      // Create room instance with E2EE support
-      const roomInstance = new Room({
-        adaptiveStream: true,
-        dynacast: true,
-        e2ee: {
-          keyProvider: e2eeKeyProvider,
-          worker: new Worker(new URL('livekit-client/e2ee-worker', import.meta.url)),
-        },
-        publishDefaults: {
-          audioPreset: {
-            maxBitrate: 32000,
-            priority: 'high',
+      if (e2eeSupported && e2eeStatus !== 'unsupported') {
+        // Create E2EE key provider
+        const keyProvider = new ExternalE2EEKeyProvider();
+        setE2eeKeyProvider(keyProvider);
+        
+        // Create room instance WITH E2EE support
+        console.log('Creating room with E2EE support');
+        roomInstance = new Room({
+          adaptiveStream: true,
+          dynacast: true,
+          e2ee: {
+            keyProvider: keyProvider,
+            worker: new Worker(new URL('livekit-client/e2ee-worker', import.meta.url)),
           },
-        },
-      });
+          publishDefaults: {
+            audioPreset: {
+              maxBitrate: 32000,
+              priority: 'high',
+            },
+          },
+        });
+      } else {
+        // Create room instance WITHOUT E2EE (like video chat)
+        console.log('Creating room WITHOUT E2EE (not supported or disabled)');
+        setE2eeStatus('unsupported');
+        roomInstance = new Room({
+          adaptiveStream: true,
+          dynacast: true,
+          publishDefaults: {
+            audioPreset: {
+              maxBitrate: 32000,
+              priority: 'high',
+            },
+          },
+        });
+      }
 
       // Set up event listeners
       setupRoomEventListeners(roomInstance);
@@ -286,16 +310,16 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
         }, 2000);
       }
 
-      // Wait a moment for connection to stabilize, then start E2EE key exchange
+      // Wait a moment for connection to stabilize, then start E2EE key exchange or mark ready
       setTimeout(async () => {
-        if (e2eeStatus !== 'unsupported') {
+        if (e2eeSupported && myKeypair) {
           console.log('Starting E2EE key exchange after connection...');
           await startE2EEKeyExchange(roomInstance);
         } else {
-          console.log('E2EE not supported, proceeding without encryption');
-          setE2eeStatus('ready'); // Allow room to work without E2EE
+          console.log('E2EE not supported or disabled, proceeding without encryption');
+          setE2eeStatus('ready'); // Allow room to work without E2EE - enables mic toggle
         }
-      }, 1000);
+      }, 500); // Reduced delay for faster setup
       
       // Also check for peer after a longer delay in case they're still connecting
       setTimeout(() => {
@@ -880,24 +904,25 @@ export default function OneOnOneRoom({ roomName, peerId, peerTopics, onLeave }: 
     }
   }, [myKeypair, peerPublicKey, room, e2eeStatus]);
 
-  // Auto-enable microphone when E2EE is ready (only once on initial setup)
+  // Auto-enable microphone when E2EE is ready or unsupported (only once on initial setup)
   useEffect(() => {
-    if (e2eeStatus === 'ready' && room) {
-      // Only auto-enable on first E2EE ready, not on subsequent changes
+    // Allow mic when E2EE is ready OR when it's unsupported (room without E2EE)
+    if ((e2eeStatus === 'ready' || e2eeStatus === 'unsupported') && room) {
+      // Only auto-enable on first ready, not on subsequent changes
       const hasBeenInitialized = room.localParticipant.audioTrackPublications.size > 0;
       if (!hasBeenInitialized) {
-        console.log('E2EE ready, initializing microphone...');
+        console.log('Room ready (e2eeStatus:', e2eeStatus, '), initializing microphone...');
         const initMic = async () => {
-        try {
+          try {
             await room.localParticipant.setMicrophoneEnabled(false);
             updateMicEnabled(false);
             console.log('Microphone initialized as muted');
-        } catch (error) {
+          } catch (error) {
             console.error('Failed to initialize microphone:', error);
-        }
-      };
+          }
+        };
         initMic();
-    }
+      }
     }
   }, [e2eeStatus, room]);
 
