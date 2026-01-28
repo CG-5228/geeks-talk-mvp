@@ -54,6 +54,15 @@ export default function LiveLayout({ activeTab = 'text', selectedSlug, onSelectS
     if (socketRef.current) return;
     const socket = io('/live');
     socketRef.current = socket;
+    
+    // When socket connects/reconnects, join the current channel room
+    socket.on('connect', () => {
+      const currentChannel = activeChannelRef.current;
+      if (currentChannel) {
+        socket.emit('room:join', { room: `channel:${currentChannel.id}` });
+      }
+    });
+    
     socket.on('presence:update', (payload: LiveCounts) => setCounts((prev) => ({ ...prev, ...payload })));
     socket.on('message:new', (msg: LiveMessage) => {
       // Use ref to get current active channel (avoids stale closure)
@@ -80,21 +89,39 @@ export default function LiveLayout({ activeTab = 'text', selectedSlug, onSelectS
     };
   }, []);
 
-  // On channel change: leave old, join new room first, then fetch history
+  // On channel change: fetch messages immediately, then join socket room
   useEffect(() => {
-    const socket = socketRef.current;
     const channelId = activeChannel?.id;
-    if (!socket || !channelId) return;
-    socket.emit('room:join', { room: `channel:${channelId}` }, () => {
-      fetch(`/api/live/messages?channel=${encodeURIComponent(channelId)}&limit=50`)
-        .then((r) => r.json())
-        .then((data) => {
+    if (!channelId) return;
+    
+    // Clear messages immediately when switching channels to avoid stale data
+    setMessages([]);
+    
+    // Fetch messages immediately - don't wait for socket
+    fetch(`/api/live/messages?channel=${encodeURIComponent(channelId)}&limit=50`)
+      .then((r) => r.json())
+      .then((data) => {
+        // Only set messages if this is still the active channel
+        if (activeChannelRef.current?.id === channelId) {
           setMessages((data.messages || []) as LiveMessage[]);
-        })
-        .catch(() => setMessages([]));
-    });
+        }
+      })
+      .catch(() => {
+        if (activeChannelRef.current?.id === channelId) {
+          setMessages([]);
+        }
+      });
+    
+    // Join socket room for real-time updates (if socket is ready)
+    const socket = socketRef.current;
+    if (socket) {
+      socket.emit('room:join', { room: `channel:${channelId}` });
+    }
+    
     return () => {
-      socket.emit('room:leave', { room: `channel:${channelId}` });
+      if (socket) {
+        socket.emit('room:leave', { room: `channel:${channelId}` });
+      }
     };
   }, [activeChannel?.id]);
 
