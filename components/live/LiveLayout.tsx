@@ -17,6 +17,14 @@ export default function LiveLayout({ activeTab = 'text', selectedSlug, onSelectS
   const [counts, setCounts] = useState<LiveCounts>({});
   const socketRef = useRef<ReturnType<typeof io> | null>(null);
   const presenceTimer = useRef<NodeJS.Timeout | null>(null);
+  
+  // Use a ref to track the current active channel to avoid stale closures in socket handlers
+  const activeChannelRef = useRef<Channel | null>(null);
+  
+  // Keep the ref in sync with state
+  useEffect(() => {
+    activeChannelRef.current = activeChannel;
+  }, [activeChannel]);
 
   useEffect(() => {
     // Ensure defaults for CSS vars at mount
@@ -48,7 +56,17 @@ export default function LiveLayout({ activeTab = 'text', selectedSlug, onSelectS
     socketRef.current = socket;
     socket.on('presence:update', (payload: LiveCounts) => setCounts((prev) => ({ ...prev, ...payload })));
     socket.on('message:new', (msg: LiveMessage) => {
-      setMessages((prev) => (activeChannel && msg.channelId === activeChannel.id ? [...prev, msg] : prev));
+      // Use ref to get current active channel (avoids stale closure)
+      const currentChannel = activeChannelRef.current;
+      if (currentChannel && msg.channelId === currentChannel.id) {
+        setMessages((prev) => {
+          // Avoid duplicates (message might already be added via optimistic update)
+          if (prev.some((m) => m.id === msg.id)) {
+            return prev.map((m) => (m.id === msg.id ? msg : m));
+          }
+          return [...prev, msg];
+        });
+      }
     });
     socket.on('message:edit', (msg: LiveMessage) => {
       setMessages((prev) => prev.map((m) => (m.id === msg.id ? msg : m)));
