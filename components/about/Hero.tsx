@@ -25,9 +25,25 @@ export default function Hero() {
               and learn out loud. Jump into a subject room, ask for help, or spin up a live voice session when text isn’t enough.
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
-              <Link href="/live" aria-label="Get Started on Live" className="rounded-md px-5 py-2.5 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] shadow-[0_0_18px_hsla(var(--primary)/0.32)] hover:shadow-[0_0_26px_hsla(var(--primary)/0.5)] transition">
+              <button
+                type="button"
+                onClick={() => {
+                  const { protocol, host } = window.location;
+                  let target = `${protocol}//live.${host}/text`;
+                  if (host.includes('localhost')) {
+                    const port = host.split(':')[1] ? `:${host.split(':')[1]}` : '';
+                    target = `${protocol}//live.localhost${port}/text`;
+                  }
+                  if (host.startsWith('live.')) {
+                    target = `${protocol}//${host}/text`;
+                  }
+                  window.location.href = target;
+                }}
+                aria-label="Get Started on Live"
+                className="rounded-md px-5 py-2.5 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] shadow-[0_0_18px_hsla(var(--primary)/0.32)] hover:shadow-[0_0_26px_hsla(var(--primary)/0.5)] transition"
+              >
                 Get Started
-              </Link>
+              </button>
               <Link href="/about#roadmap" aria-label="View Roadmap" className="rounded-md px-5 py-2.5 ring-1 ring-[color:var(--card-ring)] bg-[color:var(--card-bg)]/60 backdrop-blur-xl hover:bg-[color:var(--card-bg)]/80 transition">
                 View Roadmap
               </Link>

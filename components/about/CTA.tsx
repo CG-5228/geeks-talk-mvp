@@ -1,6 +1,21 @@
+"use client";
+
 import Link from 'next/link';
 
 export default function CTA() {
+  const goToLive = () => {
+    const { protocol, host } = window.location;
+    let target = `${protocol}//live.${host}/text`;
+    if (host.includes('localhost')) {
+      const port = host.split(':')[1] ? `:${host.split(':')[1]}` : '';
+      target = `${protocol}//live.localhost${port}/text`;
+    }
+    if (host.startsWith('live.')) {
+      target = `${protocol}//${host}/text`;
+    }
+    window.location.href = target;
+  };
+
   return (
     <section aria-label="Build with us" className="border-t border-border/20">
       <div className="h-1 bg-gradient-to-r from-primary/30 via-transparent to-transparent" />
@@ -11,12 +26,13 @@ export default function CTA() {
             Bring your project, find your people, and level up.
           </p>
           <div className="mt-8 flex flex-wrap justify-center gap-3">
-            <Link 
-              href="/live" 
+            <button
+              type="button"
+              onClick={goToLive}
               className="rounded-md px-6 py-3 bg-primary text-primary-foreground shadow-[0_0_18px_hsl(var(--primary)/0.32)] hover:shadow-[0_0_26px_hsl(var(--primary)/0.5)] transition font-medium"
             >
               Open Live
-            </Link>
+            </button>
             <Link 
               href="/signup" 
               className="rounded-md px-6 py-3 border border-border/20 bg-card/30 backdrop-blur-xl hover:bg-card/50 transition font-medium text-foreground"
