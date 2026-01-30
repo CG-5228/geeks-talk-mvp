@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 
+export const dynamic = 'force-dynamic';
+
 // GET /api/blog - List published blog posts with pagination
 export async function GET(req: NextRequest) {
   try {
