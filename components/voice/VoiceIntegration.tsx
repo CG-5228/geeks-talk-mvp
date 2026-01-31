@@ -276,9 +276,9 @@ export default function VoiceIntegration({ groupId, onSpeakingChange, onUserSpea
     try {
       if (isMuted) {
         // Unmute - enable microphone
-        const audioTrack = await roomRef.current.localParticipant.setMicrophoneEnabled(true);
-        if (audioTrack) {
-          localAudioTrackRef.current = audioTrack as LocalAudioTrack;
+        const publication = await roomRef.current.localParticipant.setMicrophoneEnabled(true);
+        if (publication && publication.track) {
+          localAudioTrackRef.current = publication.track as LocalAudioTrack;
         }
         setIsMuted(false);
         console.log('[VoiceIntegration] Microphone enabled');
@@ -314,9 +314,9 @@ export default function VoiceIntegration({ groupId, onSpeakingChange, onUserSpea
   const handlePushToTalkStart = async () => {
     if (pushToTalk && roomRef.current && isMuted) {
       try {
-        const audioTrack = await roomRef.current.localParticipant.setMicrophoneEnabled(true);
-        if (audioTrack) {
-          localAudioTrackRef.current = audioTrack as LocalAudioTrack;
+        const publication = await roomRef.current.localParticipant.setMicrophoneEnabled(true);
+        if (publication && publication.track) {
+          localAudioTrackRef.current = publication.track as LocalAudioTrack;
         }
         setIsPushToTalkActive(true);
         setIsMuted(false);
