@@ -2,6 +2,10 @@ import { NextResponse } from 'next/server';
 import { readFileSync, existsSync } from 'fs';
 import { resolve } from 'path';
 
+// Force Node.js runtime (not Edge) so fs operations work
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
 /**
  * Public site config (e.g. social links). Read from server env at request time.
  * Only exposes NEXT_PUBLIC_* social link URLs - never secrets.
@@ -48,7 +52,10 @@ function getSocialUrls(): Record<string, string> {
         if (!existsSync(envPath)) continue;
         
         const content = readFileSync(envPath, 'utf-8');
-        for (const line of content.split('\n')) {
+        // Handle both Unix (LF) and Windows (CRLF) line endings
+        const lines = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
+        
+        for (const line of lines) {
           const trimmed = line.trim();
           if (!trimmed || trimmed.startsWith('#')) continue;
           
