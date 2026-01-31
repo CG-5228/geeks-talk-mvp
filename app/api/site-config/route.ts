@@ -7,10 +7,17 @@ import { resolve } from 'path';
  * so production uses /var/www/geekstalk/shared/.env instead of build-time values.
  */
 
-// Explicitly load .env if values are missing (fallback for production)
-function loadEnvFile() {
+// Cache for loaded env values
+let envCache: Record<string, string> | null = null;
+
+// Explicitly load .env file and return parsed values
+function loadEnvFile(): Record<string, string> {
+  if (envCache) return envCache;
+  
+  const result: Record<string, string> = {};
   const envPaths = [
     '/var/www/geekstalk/shared/.env',
+    '/var/www/geekstalk/current/.env',
     resolve(process.cwd(), '.env'),
   ];
   
@@ -31,10 +38,7 @@ function loadEnvFile() {
                   (value.startsWith("'") && value.endsWith("'"))) {
                 value = value.slice(1, -1);
               }
-              // Only set if not already in process.env
-              if (!process.env[key]) {
-                process.env[key] = value;
-              }
+              result[key] = value;
             }
           }
         }
@@ -44,20 +48,47 @@ function loadEnvFile() {
       }
     }
   }
+  
+  envCache = result;
+  return result;
+}
+
+function getEnv(key: string): string {
+  // First check process.env
+  if (process.env[key]) {
+    return process.env[key]!;
+  }
+  // Then check loaded env file
+  const loaded = loadEnvFile();
+  return loaded[key] || '#';
 }
 
 export async function GET() {
-  // Load env file if needed (handles case where systemd didn't load it)
-  if (!process.env.NEXT_PUBLIC_INSTAGRAM_URL) {
-    loadEnvFile();
-  }
-
   const config = {
-    instagramUrl: process.env.NEXT_PUBLIC_INSTAGRAM_URL || '#',
-    xUrl: process.env.NEXT_PUBLIC_X_URL || '#',
-    discordUrl: process.env.NEXT_PUBLIC_DISCORD_URL || '#',
-    facebookUrl: process.env.NEXT_PUBLIC_FACEBOOK_URL || '#',
-    youtubeUrl: process.env.NEXT_PUBLIC_YOUTUBE_URL || '#',
+    instagramUrl: getEnv('NEXT_PUBLIC_INSTAGRAM_URL'),
+    xUrl: getEnv('NEXT_PUBLIC_X_URL'),
+    discordUrl: getEnv('NEXT_PUBLIC_DISCORD_URL'),
+    facebookUrl: getEnv('NEXT_PUBLIC_FACEBOOK_URL'),
+    youtubeUrl: getEnv('NEXT_PUBLIC_YOUTUBE_URL'),
   };
   return NextResponse.json(config);
+}
+
+// Debug endpoint - add ?debug=1 to see what's happening
+export async function POST() {
+  const envPaths = [
+    '/var/www/geekstalk/shared/.env',
+    '/var/www/geekstalk/current/.env',
+    resolve(process.cwd(), '.env'),
+  ];
+  
+  const debug: Record<string, unknown> = {
+    cwd: process.cwd(),
+    nodeEnv: process.env.NODE_ENV,
+    envPaths: envPaths.map(p => ({ path: p, exists: existsSync(p) })),
+    processEnvKeys: Object.keys(process.env).filter(k => k.includes('INSTAGRAM') || k.includes('PUBLIC')),
+    loadedEnv: loadEnvFile(),
+  };
+  
+  return NextResponse.json(debug);
 }
