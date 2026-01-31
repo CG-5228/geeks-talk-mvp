@@ -1,6 +1,6 @@
 "use client";
 import { useSession } from 'next-auth/react';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { Instagram, Facebook } from 'lucide-react';
 
@@ -25,8 +25,31 @@ const YouTubeIcon = ({ className }: { className?: string }) => (
   </svg>
 );
 
+type SocialConfig = {
+  instagramUrl: string;
+  xUrl: string;
+  discordUrl: string;
+  facebookUrl: string;
+  youtubeUrl: string;
+};
+
 export default function ContactPage() {
   const { data: session, status } = useSession();
+
+  const [socialLinks, setSocialLinks] = useState<SocialConfig>({
+    instagramUrl: '#',
+    xUrl: '#',
+    discordUrl: '#',
+    facebookUrl: '#',
+    youtubeUrl: '#',
+  });
+
+  useEffect(() => {
+    fetch('/api/site-config')
+      .then((res) => res.json())
+      .then((data) => setSocialLinks(data))
+      .catch(() => {});
+  }, []);
 
   const [contact, setContact] = useState({ subject: '', message: '' });
   const [contactState, setContactState] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
@@ -229,7 +252,7 @@ export default function ContactPage() {
         <div className="flex items-center space-x-4">
           {/* Instagram */}
           <a
-            href={process.env.NEXT_PUBLIC_INSTAGRAM_URL || "#"}
+            href={socialLinks.instagramUrl}
             target="_blank"
             rel="noopener noreferrer"
             className="w-12 h-12 rounded-full bg-gradient-to-tr from-purple-600 via-pink-600 to-orange-500 flex items-center justify-center text-white hover:scale-110 transition-transform duration-200"
@@ -240,7 +263,7 @@ export default function ContactPage() {
 
           {/* X (Twitter) */}
           <a
-            href={process.env.NEXT_PUBLIC_X_URL || "#"}
+            href={socialLinks.xUrl}
             target="_blank"
             rel="noopener noreferrer"
             className="w-12 h-12 rounded-full bg-black flex items-center justify-center text-white hover:scale-110 transition-transform duration-200"
@@ -251,7 +274,7 @@ export default function ContactPage() {
 
           {/* Discord */}
           <a
-            href={process.env.NEXT_PUBLIC_DISCORD_URL || "#"}
+            href={socialLinks.discordUrl}
             target="_blank"
             rel="noopener noreferrer"
             className="w-12 h-12 rounded-full bg-[#5865F2] flex items-center justify-center text-white hover:scale-110 transition-transform duration-200"
@@ -262,7 +285,7 @@ export default function ContactPage() {
 
           {/* Facebook */}
           <a
-            href={process.env.NEXT_PUBLIC_FACEBOOK_URL || "#"}
+            href={socialLinks.facebookUrl}
             target="_blank"
             rel="noopener noreferrer"
             className="w-12 h-12 rounded-full bg-[#1877F2] flex items-center justify-center text-white hover:scale-110 transition-transform duration-200"
@@ -273,7 +296,7 @@ export default function ContactPage() {
 
           {/* YouTube */}
           <a
-            href={process.env.NEXT_PUBLIC_YOUTUBE_URL || "#"}
+            href={socialLinks.youtubeUrl}
             target="_blank"
             rel="noopener noreferrer"
             className="w-12 h-12 rounded-full bg-[#FF0000] flex items-center justify-center text-white hover:scale-110 transition-transform duration-200"

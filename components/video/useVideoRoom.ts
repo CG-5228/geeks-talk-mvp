@@ -20,7 +20,7 @@ import {
 } from 'livekit-client';
 import { initializeUserInteraction, safePlayAudio, setInteracted } from '@/lib/audioUtils';
 
-export type VideoQuality = 'low' | 'sd' | 'hd';
+export type VideoQuality = 'low' | 'sd' | 'hd' | 'fhd';
 
 export interface ParticipantState {
   participant: RemoteParticipant | LocalParticipant;
@@ -67,6 +67,8 @@ export function useVideoRoom({
 
   const getVideoResolution = (quality: VideoQuality) => {
     switch (quality) {
+      case 'fhd':
+        return { width: 1920, height: 1080 };
       case 'hd':
         return { width: 1280, height: 720 };
       case 'sd':

@@ -17,7 +17,8 @@ export default function VideoSettings({
   onClose,
 }: VideoSettingsProps) {
   const qualityOptions: { value: VideoQuality; label: string; description: string }[] = [
-    { value: 'hd', label: 'HD (720p)', description: 'Best quality, higher bandwidth' },
+    { value: 'fhd', label: 'Full HD (1080p)', description: 'Crystal clear, requires fast connection' },
+    { value: 'hd', label: 'HD (720p)', description: 'High quality, higher bandwidth' },
     { value: 'sd', label: 'SD (480p)', description: 'Balanced quality and bandwidth' },
     { value: 'low', label: 'Low (360p)', description: 'Lower quality, saves bandwidth' },
   ];
