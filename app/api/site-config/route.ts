@@ -3,15 +3,24 @@ import { readFileSync, existsSync } from 'fs';
 import { resolve } from 'path';
 
 /**
- * Public site config (e.g. social links). Read from server env at request time
- * so production uses /var/www/geekstalk/shared/.env instead of build-time values.
+ * Public site config (e.g. social links). Read from server env at request time.
+ * Only exposes NEXT_PUBLIC_* social link URLs - never secrets.
  */
 
-// Cache for loaded env values
+// Cache for loaded env values (only public social URLs)
 let envCache: Record<string, string> | null = null;
 
-// Explicitly load .env file and return parsed values
-function loadEnvFile(): Record<string, string> {
+// Only these keys are allowed to be exposed
+const ALLOWED_KEYS = [
+  'NEXT_PUBLIC_INSTAGRAM_URL',
+  'NEXT_PUBLIC_X_URL',
+  'NEXT_PUBLIC_DISCORD_URL',
+  'NEXT_PUBLIC_FACEBOOK_URL',
+  'NEXT_PUBLIC_YOUTUBE_URL',
+];
+
+// Explicitly load .env file and return only allowed public values
+function loadPublicEnv(): Record<string, string> {
   if (envCache) return envCache;
   
   const result: Record<string, string> = {};
@@ -32,13 +41,16 @@ function loadEnvFile(): Record<string, string> {
             const eqIndex = trimmed.indexOf('=');
             if (eqIndex > 0) {
               const key = trimmed.slice(0, eqIndex).trim();
-              let value = trimmed.slice(eqIndex + 1).trim();
-              // Remove surrounding quotes if present
-              if ((value.startsWith('"') && value.endsWith('"')) ||
-                  (value.startsWith("'") && value.endsWith("'"))) {
-                value = value.slice(1, -1);
+              // Only load allowed public keys
+              if (ALLOWED_KEYS.includes(key)) {
+                let value = trimmed.slice(eqIndex + 1).trim();
+                // Remove surrounding quotes if present
+                if ((value.startsWith('"') && value.endsWith('"')) ||
+                    (value.startsWith("'") && value.endsWith("'"))) {
+                  value = value.slice(1, -1);
+                }
+                result[key] = value;
               }
-              result[key] = value;
             }
           }
         }
@@ -53,42 +65,25 @@ function loadEnvFile(): Record<string, string> {
   return result;
 }
 
-function getEnv(key: string): string {
+function getPublicEnv(key: string): string {
+  if (!ALLOWED_KEYS.includes(key)) return '#';
+  
   // First check process.env
   if (process.env[key]) {
     return process.env[key]!;
   }
   // Then check loaded env file
-  const loaded = loadEnvFile();
+  const loaded = loadPublicEnv();
   return loaded[key] || '#';
 }
 
 export async function GET() {
   const config = {
-    instagramUrl: getEnv('NEXT_PUBLIC_INSTAGRAM_URL'),
-    xUrl: getEnv('NEXT_PUBLIC_X_URL'),
-    discordUrl: getEnv('NEXT_PUBLIC_DISCORD_URL'),
-    facebookUrl: getEnv('NEXT_PUBLIC_FACEBOOK_URL'),
-    youtubeUrl: getEnv('NEXT_PUBLIC_YOUTUBE_URL'),
+    instagramUrl: getPublicEnv('NEXT_PUBLIC_INSTAGRAM_URL'),
+    xUrl: getPublicEnv('NEXT_PUBLIC_X_URL'),
+    discordUrl: getPublicEnv('NEXT_PUBLIC_DISCORD_URL'),
+    facebookUrl: getPublicEnv('NEXT_PUBLIC_FACEBOOK_URL'),
+    youtubeUrl: getPublicEnv('NEXT_PUBLIC_YOUTUBE_URL'),
   };
   return NextResponse.json(config);
-}
-
-// Debug endpoint - add ?debug=1 to see what's happening
-export async function POST() {
-  const envPaths = [
-    '/var/www/geekstalk/shared/.env',
-    '/var/www/geekstalk/current/.env',
-    resolve(process.cwd(), '.env'),
-  ];
-  
-  const debug: Record<string, unknown> = {
-    cwd: process.cwd(),
-    nodeEnv: process.env.NODE_ENV,
-    envPaths: envPaths.map(p => ({ path: p, exists: existsSync(p) })),
-    processEnvKeys: Object.keys(process.env).filter(k => k.includes('INSTAGRAM') || k.includes('PUBLIC')),
-    loadedEnv: loadEnvFile(),
-  };
-  
-  return NextResponse.json(debug);
 }
