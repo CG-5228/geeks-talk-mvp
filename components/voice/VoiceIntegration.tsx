@@ -3,6 +3,17 @@ import { useState, useEffect, useRef } from 'react';
 import { useSession } from 'next-auth/react';
 import { Mic, MicOff, PhoneOff, AlertCircle, LogOut } from 'lucide-react';
 import { useNotifications } from '../ui/NotificationSystem';
+import {
+  Room,
+  RoomEvent,
+  RemoteParticipant,
+  RemoteTrack,
+  RemoteTrackPublication,
+  LocalTrack,
+  Track,
+  LocalAudioTrack,
+} from 'livekit-client';
+import { safePlayAudio, initializeUserInteraction, setInteracted } from '@/lib/audioUtils';
 
 interface VoiceIntegrationProps {
   groupId: string;
@@ -18,209 +29,236 @@ export default function VoiceIntegration({ groupId, onSpeakingChange, onUserSpea
   const [isConnected, setIsConnected] = useState(false);
   const [isMuted, setIsMuted] = useState(true);
   const [isSpeaking, setIsSpeaking] = useState(false);
-  const [currentVolume, setCurrentVolume] = useState(0);
   const [pushToTalk, setPushToTalk] = useState(false);
   const [isPushToTalkActive, setIsPushToTalkActive] = useState(false);
-  const [permissionGranted, setPermissionGranted] = useState<boolean | null>(null);
   const [isConnecting, setIsConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isExiting, setIsExiting] = useState(false);
 
-  const mediaStreamRef = useRef<MediaStream | null>(null);
-  const audioContextRef = useRef<AudioContext | null>(null);
-  const analyserRef = useRef<AnalyserNode | null>(null);
-  const animationFrameRef = useRef<number | null>(null);
+  const roomRef = useRef<Room | null>(null);
+  const localAudioTrackRef = useRef<LocalAudioTrack | null>(null);
+  const audioElementsRef = useRef<Map<string, HTMLAudioElement>>(new Map());
   const { showNotification } = useNotifications();
 
+  // Cleanup on unmount
   useEffect(() => {
     return () => {
-      // Cleanup on unmount
-      if (mediaStreamRef.current) {
-        mediaStreamRef.current.getTracks().forEach(track => track.stop());
-      }
-      if (audioContextRef.current) {
-        audioContextRef.current.close();
-      }
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current);
-      }
+      cleanupRoom();
     };
   }, []);
 
-  const requestMicrophonePermission = async () => {
-    // Don't request microphone if user is exiting
-    if (isExiting) {
-      return false;
+  const cleanupRoom = async () => {
+    // Stop local audio track
+    if (localAudioTrackRef.current) {
+      localAudioTrackRef.current.stop();
+      localAudioTrackRef.current = null;
     }
-    
-    try {
-      setError(null);
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        }
-      });
 
-      mediaStreamRef.current = stream;
-      setPermissionGranted(true);
+    // Clean up audio elements
+    audioElementsRef.current.forEach((element, participantId) => {
+      element.pause();
+      element.srcObject = null;
+      element.remove();
+    });
+    audioElementsRef.current.clear();
 
-      // Set up audio analysis for speaking detection
-      setupAudioAnalysis(stream);
-
-      showNotification({
-        title: 'Microphone Access Granted',
-        message: 'You can now use voice chat. Click the microphone button to unmute.',
-        type: 'success',
-        duration: 4000,
-      });
-
-      return true;
-    } catch (error) {
-      console.error('Microphone permission denied:', error);
-      setPermissionGranted(false);
-      setError('Microphone access is required for voice chat');
-
-      showNotification({
-        title: 'Microphone Access Denied',
-        message: 'Please allow microphone access to use voice chat features. You can exit the room using the back arrow, "Exit Room" button, or press Escape.',
-        type: 'error',
-        duration: 8000,
-      });
-
-      return false;
+    // Disconnect from room
+    if (roomRef.current) {
+      await roomRef.current.disconnect();
+      roomRef.current = null;
     }
   };
 
-  const setupAudioAnalysis = (stream: MediaStream) => {
-    try {
-      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-      const analyser = audioContext.createAnalyser();
-      const microphone = audioContext.createMediaStreamSource(stream);
+  const handleTrackSubscribed = (
+    track: RemoteTrack,
+    publication: RemoteTrackPublication,
+    participant: RemoteParticipant
+  ) => {
+    console.log('[VoiceIntegration] Track subscribed:', {
+      kind: track.kind,
+      participantId: participant.identity,
+      trackSid: track.sid,
+    });
 
-      analyser.fftSize = 256;
-      analyser.smoothingTimeConstant = 0.8;
-      microphone.connect(analyser);
+    if (track.kind === 'audio') {
+      // Create audio element for remote participant
+      const audioElement = track.attach() as HTMLAudioElement;
+      audioElement.style.display = 'none';
+      audioElement.autoplay = true;
+      audioElement.volume = 1;
+      document.body.appendChild(audioElement);
 
-      audioContextRef.current = audioContext;
-      analyserRef.current = analyser;
+      // Store reference
+      audioElementsRef.current.set(participant.identity, audioElement);
 
-      // Start speaking detection
-      detectSpeaking();
-    } catch (error) {
-      console.error('Error setting up audio analysis:', error);
+      // Try to play
+      safePlayAudio(audioElement).then((success) => {
+        console.log('[VoiceIntegration] Audio play result for', participant.identity, ':', success);
+      });
+
+      // Notify about user speaking (basic detection)
+      onUserSpeakingChange?.(participant.identity, true, 0.5);
     }
   };
 
-  const detectSpeaking = () => {
-    if (!analyserRef.current) return;
+  const handleTrackUnsubscribed = (
+    track: RemoteTrack,
+    publication: RemoteTrackPublication,
+    participant: RemoteParticipant
+  ) => {
+    console.log('[VoiceIntegration] Track unsubscribed:', {
+      kind: track.kind,
+      participantId: participant.identity,
+    });
 
-    const analyser = analyserRef.current;
-    const dataArray = new Uint8Array(analyser.frequencyBinCount);
-
-    const checkSpeaking = () => {
-      analyser.getByteFrequencyData(dataArray);
-
-      // Calculate average volume
-      const average = dataArray.reduce((sum, value) => sum + value, 0) / dataArray.length;
-      const threshold = 10; // Lowered threshold for better sensitivity
-
-      // Normalize volume to 0-1 range for the audible alert (more sensitive)
-      const normalizedVolume = Math.min(average / 50, 1); // Cap at 50 for more sensitive normalization
-      setCurrentVolume(normalizedVolume);
-
-      const wasSpeaking = isSpeaking;
-      const nowSpeaking = average > threshold && !isMuted;
-
-      if (nowSpeaking !== wasSpeaking) {
-        setIsSpeaking(nowSpeaking);
-        onSpeakingChange?.(nowSpeaking);
-        // Also notify about user speaking state with volume
-        if (session?.user?.id) {
-          onUserSpeakingChange?.(session.user.id, nowSpeaking, normalizedVolume);
-        }
-      } else if (nowSpeaking && session?.user?.id) {
-        // Update volume even if speaking state hasn't changed
-        onUserSpeakingChange?.(session.user.id, nowSpeaking, normalizedVolume);
+    if (track.kind === 'audio') {
+      // Clean up audio element
+      const audioElement = audioElementsRef.current.get(participant.identity);
+      if (audioElement) {
+        audioElement.pause();
+        audioElement.srcObject = null;
+        audioElement.remove();
+        audioElementsRef.current.delete(participant.identity);
       }
 
-      animationFrameRef.current = requestAnimationFrame(checkSpeaking);
-    };
+      // Track is detached
+      track.detach();
 
-    checkSpeaking();
+      onUserSpeakingChange?.(participant.identity, false, 0);
+    }
+  };
+
+  const handleParticipantConnected = (participant: RemoteParticipant) => {
+    console.log('[VoiceIntegration] Participant connected:', participant.identity);
+
+    // Check for existing audio tracks
+    participant.audioTrackPublications.forEach((publication) => {
+      if (publication.isSubscribed && publication.track) {
+        handleTrackSubscribed(publication.track as RemoteTrack, publication, participant);
+      }
+    });
+  };
+
+  const handleParticipantDisconnected = (participant: RemoteParticipant) => {
+    console.log('[VoiceIntegration] Participant disconnected:', participant.identity);
+
+    // Clean up their audio
+    const audioElement = audioElementsRef.current.get(participant.identity);
+    if (audioElement) {
+      audioElement.pause();
+      audioElement.srcObject = null;
+      audioElement.remove();
+      audioElementsRef.current.delete(participant.identity);
+    }
+
+    onUserSpeakingChange?.(participant.identity, false, 0);
+  };
+
+  const handleActiveSpeakersChanged = (speakers: any[]) => {
+    // Update speaking states for all participants
+    speakers.forEach((speaker) => {
+      const isSelf = speaker.identity === session?.user?.id;
+      if (isSelf) {
+        const nowSpeaking = speaker.audioLevel > 0.01;
+        if (nowSpeaking !== isSpeaking) {
+          setIsSpeaking(nowSpeaking);
+          onSpeakingChange?.(nowSpeaking);
+        }
+      }
+      onUserSpeakingChange?.(speaker.identity, speaker.audioLevel > 0.01, speaker.audioLevel);
+    });
   };
 
   const connectToVoice = async () => {
-    if (!session?.user?.id) return;
+    if (!session?.user?.id || isExiting) return;
 
     setIsConnecting(true);
     setError(null);
 
     try {
-      // Request microphone permission first
-      const hasPermission = await requestMicrophonePermission();
-      if (!hasPermission) {
-        setIsConnecting(false);
-        return;
-      }
+      // Mark user interaction for autoplay
+      setInteracted();
+      initializeUserInteraction();
 
       // Get LiveKit token
       const tokenResponse = await fetch(`/api/voice/token?groupId=${groupId}`);
       if (!tokenResponse.ok) {
-        throw new Error('Failed to get voice token');
+        const errorData = await tokenResponse.json();
+        throw new Error(errorData.error || 'Failed to get voice token');
       }
 
-      const { token } = await tokenResponse.json();
+      const { token, url, roomName } = await tokenResponse.json();
+      console.log('[VoiceIntegration] Got token for room:', roomName);
 
-      // For now, we'll simulate connection since we don't have LiveKit server set up
-      // In a real implementation, you would connect to LiveKit here
+      if (!url) {
+        throw new Error('LiveKit URL not configured');
+      }
 
+      // Create room instance
+      const roomInstance = new Room({
+        adaptiveStream: true,
+        dynacast: true,
+        publishDefaults: {
+          audioPreset: {
+            maxBitrate: 32000,
+            priority: 'high',
+          },
+        },
+      });
+
+      // Set up event listeners
+      roomInstance.on(RoomEvent.TrackSubscribed, handleTrackSubscribed);
+      roomInstance.on(RoomEvent.TrackUnsubscribed, handleTrackUnsubscribed);
+      roomInstance.on(RoomEvent.ParticipantConnected, handleParticipantConnected);
+      roomInstance.on(RoomEvent.ParticipantDisconnected, handleParticipantDisconnected);
+      roomInstance.on(RoomEvent.ActiveSpeakersChanged, handleActiveSpeakersChanged);
+      roomInstance.on(RoomEvent.Disconnected, () => {
+        console.log('[VoiceIntegration] Disconnected from room');
+        setIsConnected(false);
+        onConnectionChange?.(false);
+      });
+
+      // Connect to room
+      console.log('[VoiceIntegration] Connecting to LiveKit room...');
+      await roomInstance.connect(url, token);
+      console.log('[VoiceIntegration] Connected to room!');
+
+      roomRef.current = roomInstance;
       setIsConnected(true);
       setIsConnecting(false);
       onConnectionChange?.(true);
 
+      // Handle existing participants
+      roomInstance.remoteParticipants.forEach((participant) => {
+        handleParticipantConnected(participant);
+      });
+
       showNotification({
         title: 'Connected to Voice Chat',
-        message: 'You are now connected to the voice channel.',
+        message: 'You are now connected. Click unmute to speak.',
         type: 'success',
         duration: 3000,
       });
 
-    } catch (error) {
-      console.error('Error connecting to voice:', error);
-      setError('Failed to connect to voice chat');
+    } catch (error: any) {
+      console.error('[VoiceIntegration] Error connecting:', error);
+      setError(error.message || 'Failed to connect to voice chat');
       setIsConnecting(false);
 
       showNotification({
         title: 'Connection Failed',
-        message: 'Failed to connect to voice chat. Please try again.',
+        message: error.message || 'Failed to connect to voice chat. Please try again.',
         type: 'error',
         duration: 4000,
       });
     }
   };
 
-  const disconnectFromVoice = () => {
-    if (mediaStreamRef.current) {
-      mediaStreamRef.current.getTracks().forEach(track => track.stop());
-      mediaStreamRef.current = null;
-    }
-
-    if (audioContextRef.current) {
-      audioContextRef.current.close();
-      audioContextRef.current = null;
-    }
-
-    if (animationFrameRef.current) {
-      cancelAnimationFrame(animationFrameRef.current);
-      animationFrameRef.current = null;
-    }
-
+  const disconnectFromVoice = async () => {
+    await cleanupRoom();
     setIsConnected(false);
     setIsMuted(true);
     setIsSpeaking(false);
-    setPermissionGranted(null);
     setError(null);
     onConnectionChange?.(false);
 
@@ -232,17 +270,36 @@ export default function VoiceIntegration({ groupId, onSpeakingChange, onUserSpea
     });
   };
 
-  const toggleMute = () => {
-    if (!mediaStreamRef.current) return;
+  const toggleMute = async () => {
+    if (!roomRef.current) return;
 
-    const audioTracks = mediaStreamRef.current.getAudioTracks();
-    audioTracks.forEach(track => {
-      track.enabled = isMuted;
-    });
-
-    setIsMuted(!isMuted);
-    setIsSpeaking(false);
-    onSpeakingChange?.(false);
+    try {
+      if (isMuted) {
+        // Unmute - enable microphone
+        const audioTrack = await roomRef.current.localParticipant.setMicrophoneEnabled(true);
+        if (audioTrack) {
+          localAudioTrackRef.current = audioTrack as LocalAudioTrack;
+        }
+        setIsMuted(false);
+        console.log('[VoiceIntegration] Microphone enabled');
+      } else {
+        // Mute - disable microphone
+        await roomRef.current.localParticipant.setMicrophoneEnabled(false);
+        localAudioTrackRef.current = null;
+        setIsMuted(true);
+        setIsSpeaking(false);
+        onSpeakingChange?.(false);
+        console.log('[VoiceIntegration] Microphone disabled');
+      }
+    } catch (error) {
+      console.error('[VoiceIntegration] Error toggling mute:', error);
+      showNotification({
+        title: 'Microphone Error',
+        message: 'Failed to toggle microphone. Please check permissions.',
+        type: 'error',
+        duration: 4000,
+      });
+    }
   };
 
   const togglePushToTalk = () => {
@@ -254,36 +311,42 @@ export default function VoiceIntegration({ groupId, onSpeakingChange, onUserSpea
     }
   };
 
-  const handlePushToTalkStart = () => {
-    if (pushToTalk && mediaStreamRef.current) {
-      const audioTracks = mediaStreamRef.current.getAudioTracks();
-      audioTracks.forEach(track => {
-        track.enabled = true;
-      });
-      setIsPushToTalkActive(true);
-      setIsMuted(false);
-      onPushToTalkChange?.(true);
+  const handlePushToTalkStart = async () => {
+    if (pushToTalk && roomRef.current && isMuted) {
+      try {
+        const audioTrack = await roomRef.current.localParticipant.setMicrophoneEnabled(true);
+        if (audioTrack) {
+          localAudioTrackRef.current = audioTrack as LocalAudioTrack;
+        }
+        setIsPushToTalkActive(true);
+        setIsMuted(false);
+        onPushToTalkChange?.(true);
+      } catch (error) {
+        console.error('[VoiceIntegration] Push-to-talk start error:', error);
+      }
     }
   };
 
-  const handlePushToTalkEnd = () => {
-    if (pushToTalk && mediaStreamRef.current) {
-      const audioTracks = mediaStreamRef.current.getAudioTracks();
-      audioTracks.forEach(track => {
-        track.enabled = false;
-      });
-      setIsPushToTalkActive(false);
-      setIsMuted(true);
-      setIsSpeaking(false);
-      onSpeakingChange?.(false);
-      onPushToTalkChange?.(false);
+  const handlePushToTalkEnd = async () => {
+    if (pushToTalk && roomRef.current && !isMuted) {
+      try {
+        await roomRef.current.localParticipant.setMicrophoneEnabled(false);
+        localAudioTrackRef.current = null;
+        setIsPushToTalkActive(false);
+        setIsMuted(true);
+        setIsSpeaking(false);
+        onSpeakingChange?.(false);
+        onPushToTalkChange?.(false);
+      } catch (error) {
+        console.error('[VoiceIntegration] Push-to-talk end error:', error);
+      }
     }
   };
 
   // Keyboard event handlers for push-to-talk
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.code === 'Space' && pushToTalk && !isPushToTalkActive) {
+      if (event.code === 'Space' && pushToTalk && !isPushToTalkActive && isConnected) {
         event.preventDefault();
         handlePushToTalkStart();
       }
@@ -307,29 +370,17 @@ export default function VoiceIntegration({ groupId, onSpeakingChange, onUserSpea
     };
   }, [pushToTalk, isPushToTalkActive, isConnected]);
 
-  // Auto-connect when component mounts (but not if user is exiting)
+  // Auto-connect when component mounts
   useEffect(() => {
     if (session?.user?.id && !isConnected && !isConnecting && !isExiting) {
       connectToVoice();
     }
   }, [session?.user?.id, isExiting]);
 
-  // Cleanup when user is exiting
+  // Cleanup when exiting
   useEffect(() => {
     if (isExiting) {
-      // Stop any ongoing microphone requests
-      if (mediaStreamRef.current) {
-        mediaStreamRef.current.getTracks().forEach(track => track.stop());
-        mediaStreamRef.current = null;
-      }
-      if (audioContextRef.current) {
-        audioContextRef.current.close();
-        audioContextRef.current = null;
-      }
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current);
-        animationFrameRef.current = null;
-      }
+      cleanupRoom();
       setIsConnected(false);
       setIsConnecting(false);
       setError(null);
@@ -431,7 +482,7 @@ export default function VoiceIntegration({ groupId, onSpeakingChange, onUserSpea
             ? 'bg-blue-500 text-white hover:bg-blue-600'
             : 'bg-gray-500 text-white hover:bg-gray-600'
         }`}
-        title={pushToTalk ? 'Disable Push-to-Talk' : 'Enable Push-to-Talk'}
+        title={pushToTalk ? 'Disable Push-to-Talk' : 'Enable Push-to-Talk (Hold Space)'}
       >
         <Mic className="w-5 h-5" />
       </button>
@@ -448,7 +499,10 @@ export default function VoiceIntegration({ groupId, onSpeakingChange, onUserSpea
       {/* Leave Group Button */}
       {onLeaveGroup && (
         <button
-          onClick={onLeaveGroup}
+          onClick={() => {
+            setIsExiting(true);
+            disconnectFromVoice().then(() => onLeaveGroup());
+          }}
           className="p-3 rounded-full bg-orange-500 text-white hover:bg-orange-600 transition-colors"
           title="Leave Group"
         >
