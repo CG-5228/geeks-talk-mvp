@@ -18,10 +18,7 @@ export const metadata: Metadata = {
   },
   applicationName: 'Geeks Talk',
   description: 'Join the community where developers, students, and tech enthusiasts collaborate, learn, and grow together in real-time.',
-  icons: {
-    icon: [{ url: '/favicon.ico', sizes: 'any' }],
-    apple: '/apple-icon.png',
-  },
+  // Let Next.js auto-detect favicon from app/favicon.ico and app/apple-icon.png
   openGraph: {
     siteName: 'Geeks Talk',
     title: 'Geeks Talk - Learn Together. Build Together.',
@@ -54,8 +51,6 @@ export default function RootLayout({
             <head>
                 {/* theme-color is updated dynamically by ThemeColor */}
                 <meta name="theme-color" content="#0d0f10" />
-                <link rel="icon" href="/favicon.ico" sizes="any" />
-                <link rel="apple-touch-icon" href="/apple-icon.png" />
                 <script
                   type="application/ld+json"
                   dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
