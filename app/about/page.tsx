@@ -11,7 +11,7 @@ import CTA from '@/components/about/CTA';
 export const metadata: Metadata = {
   title: 'About • Geeks Talk',
   description:
-    'Geeks Talk is a live study hall for builders and learners. Join subject hubs, get realtime help, and unlock voice rooms to learn out loud.',
+    'Geeks Talk is an live study hall for builders and learners. Join subject hubs, get realtime help, and unlock voice rooms to learn out loud.',
   openGraph: {
     title: 'About • Geeks Talk',
     description:
