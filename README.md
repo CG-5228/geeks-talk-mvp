@@ -1,5 +1,7 @@
 # Geeks Talk MVP
 
+[![Repo Views](https://hits.seeyoufarm.com/api/count/incr/badge.svg?url=https%3A%2F%2Fgithub.com%2FCG-5228%2Fgeeks-talk-mvp&count_bg=%231F2937&title_bg=%233B82F6&icon=github.svg&icon_color=%23E7E7E7&title=Repo+Views&edge_flat=false)](https://github.com/CG-5228/geeks-talk-mvp)
+
 Geeks Talk is a comprehensive real-time chat and voice communication platform designed for discussions around various subjects. This project is built using Next.js 14 with TypeScript, Prisma for database management, and Tailwind CSS for styling.
 
 ## Features
