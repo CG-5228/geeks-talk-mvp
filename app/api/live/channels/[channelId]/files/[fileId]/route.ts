@@ -7,8 +7,9 @@ import { getPresignedUrl, deleteFromS3 } from '@/lib/s3';
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { channelId: string; fileId: string } }
+  props: { params: Promise<{ channelId: string; fileId: string }> }
 ) {
+  const params = await props.params;
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -81,8 +82,9 @@ export async function GET(
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { channelId: string; fileId: string } }
+  props: { params: Promise<{ channelId: string; fileId: string }> }
 ) {
+  const params = await props.params;
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });

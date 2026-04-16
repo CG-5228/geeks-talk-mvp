@@ -5,15 +5,21 @@ type SendEmailParams = {
   from?: string;
 };
 
+function sanitizeHeaderValue(value: string): string {
+  return value.replace(/[\r\n]+/g, ' ').trim();
+}
+
 export async function sendEmailResend({ subject, html, to, from }: SendEmailParams): Promise<boolean> {
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) {
     console.warn('Resend disabled: missing RESEND_API_KEY');
     return false;
   }
-  const fromAddr = from || process.env.EMAIL_NO_REPLY || 'no-reply@geekstalk.co';
+  const fromAddr = sanitizeHeaderValue(from || process.env.EMAIL_NO_REPLY || 'no-reply@geekstalk.co');
+  const toAddr = sanitizeHeaderValue(to);
+  const safeSubject = sanitizeHeaderValue(subject).slice(0, 200);
   
-  console.log('Sending email:', { to, from: fromAddr, subject, hasApiKey: !!apiKey });
+  console.log('Sending email:', { to: toAddr, from: fromAddr, subject: safeSubject, hasApiKey: !!apiKey });
 
   try {
     const res = await fetch('https://api.resend.com/emails', {
@@ -22,7 +28,7 @@ export async function sendEmailResend({ subject, html, to, from }: SendEmailPara
         'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ from: fromAddr, to, subject, html }),
+      body: JSON.stringify({ from: fromAddr, to: toAddr, subject: safeSubject, html }),
     });
 
     if (!res.ok) {
@@ -56,8 +62,9 @@ export async function sendEmailWithFallback({ subject, html, to, from }: SendEma
     const port = Number(process.env.SMTP_PORT || 587);
     const user = process.env.SMTP_USER;
     const pass = process.env.SMTP_PASS;
-    const fromAddr = from || process.env.EMAIL_FROM || 'no-reply@geekstalk.co';
-    const toAddr = to || process.env.EMAIL_TO || 'chris.g@geekstalk.co';
+    const fromAddr = sanitizeHeaderValue(from || process.env.EMAIL_FROM || 'no-reply@geekstalk.co');
+    const toAddr = sanitizeHeaderValue(to || process.env.EMAIL_TO || 'chris.g@geekstalk.co');
+    const safeSubject = sanitizeHeaderValue(subject).slice(0, 200);
 
     if (!host || !user || !pass) {
       console.warn('Nodemailer fallback disabled: missing SMTP envs');
@@ -74,7 +81,7 @@ export async function sendEmailWithFallback({ subject, html, to, from }: SendEma
     await transporter.sendMail({
       from: fromAddr,
       to: toAddr,
-      subject,
+      subject: safeSubject,
       html,
     });
 
@@ -96,5 +103,4 @@ export function renderCodeEmail(code: string) {
     </div>
   `;
 }
-
 

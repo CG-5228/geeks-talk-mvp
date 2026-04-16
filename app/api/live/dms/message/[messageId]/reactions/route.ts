@@ -4,10 +4,8 @@ import { authOptions } from '@/lib/auth';
 import { db } from '@/lib/db';
 
 // POST /api/live/dms/message/[messageId]/reactions - Add reaction to DM message
-export async function POST(
-  req: NextRequest,
-  { params }: { params: { messageId: string } }
-) {
+export async function POST(req: NextRequest, props: { params: Promise<{ messageId: string }> }) {
+  const params = await props.params;
   try {
     const session = await getServerSession(authOptions);
     if (!session?.user?.id) {
@@ -94,10 +92,8 @@ export async function POST(
 }
 
 // GET /api/live/dms/message/[messageId]/reactions - Get all reactions for a DM message
-export async function GET(
-  req: NextRequest,
-  { params }: { params: { messageId: string } }
-) {
+export async function GET(req: NextRequest, props: { params: Promise<{ messageId: string }> }) {
+  const params = await props.params;
   try {
     const session = await getServerSession(authOptions);
     if (!session?.user?.id) {
@@ -166,10 +162,8 @@ export async function GET(
 }
 
 // DELETE /api/live/dms/message/[messageId]/reactions - Remove all reactions from a DM message (admin only)
-export async function DELETE(
-  req: NextRequest,
-  { params }: { params: { messageId: string } }
-) {
+export async function DELETE(req: NextRequest, props: { params: Promise<{ messageId: string }> }) {
+  const params = await props.params;
   try {
     const session = await getServerSession(authOptions);
     if (!session?.user?.id) {

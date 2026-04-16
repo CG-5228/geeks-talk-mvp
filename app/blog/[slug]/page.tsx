@@ -1,20 +1,17 @@
-import dynamic from 'next/dynamic';
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { db } from '@/lib/db';
 import PostContent from '@/components/blog/PostContent';
 import CommentSection from '@/components/blog/CommentSection';
-
-const LazyParticles = dynamic(() => import('@/components/auth/ParticlesBackground'), {
-  ssr: false,
-});
+import ParticlesBackgroundClient from '@/components/auth/ParticlesBackgroundClient';
 
 interface Props {
-  params: { slug: string };
+  params: Promise<{ slug: string }>;
 }
 
 // Generate metadata for SEO
-export async function generateMetadata({ params }: Props): Promise<Metadata> {
+export async function generateMetadata(props: Props): Promise<Metadata> {
+  const params = await props.params;
   const post = await db.blogPost.findUnique({
     where: { slug: params.slug, published: true },
     select: { title: true, excerpt: true, coverImage: true },
@@ -38,7 +35,8 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   };
 }
 
-export default async function BlogPostPage({ params }: Props) {
+export default async function BlogPostPage(props: Props) {
+  const params = await props.params;
   const post = await db.blogPost.findUnique({
     where: { slug: params.slug },
     include: {
@@ -72,7 +70,7 @@ export default async function BlogPostPage({ params }: Props) {
   return (
     <div className="relative min-h-screen">
       {/* Background particles */}
-      <LazyParticles density={30} zIndex={0} />
+      <ParticlesBackgroundClient density={30} zIndex={0} />
 
       {/* Radial overlay */}
       <div className="pointer-events-none fixed inset-0 z-[1]" aria-hidden>

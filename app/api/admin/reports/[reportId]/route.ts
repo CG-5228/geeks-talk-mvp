@@ -4,10 +4,8 @@ import { authOptions } from '@/lib/auth';
 import { isAdmin } from '@/lib/admin';
 import { db } from '@/lib/db';
 
-export async function GET(
-  req: Request,
-  { params }: { params: { reportId: string } }
-) {
+export async function GET(req: Request, props: { params: Promise<{ reportId: string }> }) {
+  const params = await props.params;
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });

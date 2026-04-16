@@ -1,29 +1,36 @@
 import { NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth';
 import { db } from '@/lib/db';
 
 export async function POST(req: Request) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
   try {
-    let userId: string;
+    let requestedUserId: string | null = null;
 
     // Handle both JSON and FormData (from sendBeacon)
     const contentType = req.headers.get('content-type');
     if (contentType?.includes('application/json')) {
       const body = await req.json();
-      userId = body.userId;
+      requestedUserId = typeof body?.userId === 'string' ? body.userId : null;
     } else {
       // Handle FormData from sendBeacon
       const formData = await req.formData();
-      userId = formData.get('userId') as string;
+      const formValue = formData.get('userId');
+      requestedUserId = typeof formValue === 'string' ? formValue : null;
     }
 
-    if (!userId) {
-
-      return NextResponse.json({ error: 'User ID required' }, { status: 400 });
+    // Never allow clients to mark other users offline.
+    if (requestedUserId && requestedUserId !== session.user.id) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    // Directly update the user's status without session check
     const result = await db.user.update({
-      where: { id: userId },
+      where: { id: session.user.id },
       data: {
         lastSeen: new Date(Date.now() - 2 * 60 * 1000), // Set to 2 minutes ago
         onlineStatus: 'offline'
@@ -32,7 +39,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({
       success: true,
-      message: 'User set offline directly',
+      message: 'User set offline',
       userId: result.id
     });
   } catch (error) {

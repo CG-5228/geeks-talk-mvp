@@ -3,17 +3,15 @@ import { authOptions } from '@/lib/auth';
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 
-export async function GET(
-  req: Request,
-  { params }: { params: { userId: string } }
-) {
+export async function GET(req: Request, props: { params: Promise<{ userId: string }> }) {
+  const params = await props.params;
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
-  
+
   const userId = params.userId;
-  
+
   // Get user with likes count
   const user = await db.user.findUnique({
     where: { id: userId },
@@ -24,11 +22,11 @@ export async function GET(
       likesCount: true
     }
   });
-  
+
   if (!user) {
     return NextResponse.json({ error: 'User not found' }, { status: 404 });
   }
-  
+
   // Check if current user has liked this user
   const hasLiked = await db.userLike.findUnique({
     where: {
@@ -38,7 +36,7 @@ export async function GET(
       }
     }
   });
-  
+
   return NextResponse.json({
     userId: user.id,
     name: user.name,

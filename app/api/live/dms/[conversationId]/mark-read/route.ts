@@ -4,10 +4,8 @@ import { authOptions } from '@/lib/auth';
 import { db } from '@/lib/db';
 
 // POST /api/live/dms/[conversationId]/mark-read - Mark specific messages as read
-export async function POST(
-  req: NextRequest,
-  { params }: { params: { conversationId: string } }
-) {
+export async function POST(req: NextRequest, props: { params: Promise<{ conversationId: string }> }) {
+  const params = await props.params;
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });

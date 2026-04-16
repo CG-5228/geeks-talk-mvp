@@ -20,14 +20,8 @@ export async function getAdminHash(userId: string): Promise<string | null> {
 }
 
 export async function generateAdminHash(userId: string): Promise<string> {
-  const secret = process.env.ADMIN_HASH_SECRET || 'fallback-secret';
-  const timestamp = Date.now();
-  const hash = crypto
-    .createHash('sha256')
-    .update(`${userId}-${timestamp}-${secret}`)
-    .digest('hex')
-    .substring(0, 32);
-  return hash;
+  void userId;
+  return crypto.randomBytes(16).toString('hex');
 }
 
 export async function validateAdminHash(hash: string): Promise<string | null> {

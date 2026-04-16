@@ -4,20 +4,18 @@ import { isAdmin } from '@/lib/admin';
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 
-export async function DELETE(
-  req: Request,
-  { params }: { params: { channelId: string } }
-) {
+export async function DELETE(req: Request, props: { params: Promise<{ channelId: string }> }) {
+  const params = await props.params;
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
-  
+
   const admin = await isAdmin(session.user.id);
   if (!admin) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
-  
+
   try {
     const { channelId } = params;
     
@@ -47,20 +45,18 @@ export async function DELETE(
   }
 }
 
-export async function PUT(
-  req: Request,
-  { params }: { params: { channelId: string } }
-) {
+export async function PUT(req: Request, props: { params: Promise<{ channelId: string }> }) {
+  const params = await props.params;
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
-  
+
   const admin = await isAdmin(session.user.id);
   if (!admin) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
-  
+
   try {
     const { channelId } = params;
     const { name, topic, visibility, category } = await req.json();

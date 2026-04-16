@@ -4,15 +4,39 @@ interface PostContentProps {
   content: string;
 }
 
-// Simple markdown parser - converts common markdown patterns to HTML
-function parseMarkdown(text: string): string {
-  let html = text;
-
-  // Escape HTML entities first (security)
-  html = html
+function escapeHtml(text: string): string {
+  return text
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function sanitizeUrl(rawUrl: string): string | null {
+  const normalized = rawUrl.trim().replace(/&amp;/g, '&');
+  if (!normalized || /\s/.test(normalized)) {
+    return null;
+  }
+
+  if (normalized.startsWith('#')) {
+    return normalized;
+  }
+
+  if (normalized.startsWith('/') && !normalized.startsWith('//')) {
+    return normalized;
+  }
+
+  if (/^https?:\/\//i.test(normalized)) {
+    return normalized;
+  }
+
+  return null;
+}
+
+// Simple markdown parser - converts common markdown patterns to HTML
+function parseMarkdown(text: string): string {
+  let html = escapeHtml(text);
 
   // Headers (h1-h6)
   html = html.replace(/^###### (.*)$/gm, '<h6 class="text-sm font-semibold text-[rgba(236,245,255,0.95)] mt-6 mb-2">$1</h6>');
@@ -42,16 +66,26 @@ function parseMarkdown(text: string): string {
   html = html.replace(/\*([^*]+)\*/g, '<em class="italic">$1</em>');
   html = html.replace(/_([^_]+)_/g, '<em class="italic">$1</em>');
 
-  // Links
-  html = html.replace(
-    /\[([^\]]+)\]\(([^)]+)\)/g,
-    '<a href="$2" class="text-primary hover:underline" target="_blank" rel="noopener noreferrer">$1</a>'
-  );
-
   // Images
   html = html.replace(
     /!\[([^\]]*)\]\(([^)]+)\)/g,
-    '<img src="$2" alt="$1" class="max-w-full h-auto rounded-lg my-4" />'
+    (_match, altText: string, rawUrl: string) => {
+      const safeUrl = sanitizeUrl(rawUrl);
+      if (!safeUrl) return '';
+      return `<img src="${escapeHtml(safeUrl)}" alt="${altText}" class="max-w-full h-auto rounded-lg my-4" loading="lazy" />`;
+    }
+  );
+
+  // Links
+  html = html.replace(
+    /\[([^\]]+)\]\(([^)]+)\)/g,
+    (_match, label: string, rawUrl: string) => {
+      const safeUrl = sanitizeUrl(rawUrl);
+      if (!safeUrl) {
+        return label;
+      }
+      return `<a href="${escapeHtml(safeUrl)}" class="text-primary hover:underline" target="_blank" rel="noopener noreferrer">${label}</a>`;
+    }
   );
 
   // Blockquotes

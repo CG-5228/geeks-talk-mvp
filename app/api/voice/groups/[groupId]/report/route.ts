@@ -4,10 +4,8 @@ import { authOptions } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { uploadToS3 } from '@/lib/s3';
 
-export async function POST(
-  request: NextRequest,
-  { params }: { params: { groupId: string } }
-) {
+export async function POST(request: NextRequest, props: { params: Promise<{ groupId: string }> }) {
+  const params = await props.params;
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });

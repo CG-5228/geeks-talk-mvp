@@ -4,27 +4,25 @@ import { isAdmin } from '@/lib/admin';
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 
-export async function GET(
-  req: Request,
-  { params }: { params: { table: string } }
-) {
+export async function GET(req: Request, props: { params: Promise<{ table: string }> }) {
+  const params = await props.params;
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
-  
+
   const admin = await isAdmin(session.user.id);
   if (!admin) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
-  
+
   const table = params.table;
   const { searchParams } = new URL(req.url);
   const page = parseInt(searchParams.get('page') || '1');
   const limit = parseInt(searchParams.get('limit') || '50');
-  
+
   const skip = (page - 1) * limit;
-  
+
   try {
     // Map table names to Prisma model names
     const modelMap: { [key: string]: any } = {
@@ -105,30 +103,28 @@ export async function GET(
   }
 }
 
-export async function POST(
-  req: Request,
-  { params }: { params: { table: string } }
-) {
+export async function POST(req: Request, props: { params: Promise<{ table: string }> }) {
+  const params = await props.params;
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
-  
+
   const admin = await isAdmin(session.user.id);
   if (!admin) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
-  
+
   // For security, we'll limit which tables can be modified
   const allowedTables = ['DailyStats', 'UserActivity'];
   const table = params.table;
-  
+
   if (!allowedTables.includes(table)) {
     return NextResponse.json({ error: 'Table modification not allowed' }, { status: 403 });
   }
-  
+
   const data = await req.json();
-  
+
   try {
     const modelMap: { [key: string]: any } = {
       'DailyStats': db.dailyStats,
@@ -151,34 +147,32 @@ export async function POST(
   }
 }
 
-export async function DELETE(
-  req: Request,
-  { params }: { params: { table: string } }
-) {
+export async function DELETE(req: Request, props: { params: Promise<{ table: string }> }) {
+  const params = await props.params;
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
-  
+
   const admin = await isAdmin(session.user.id);
   if (!admin) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
-  
+
   // For security, we'll limit which tables can be modified
   const allowedTables = ['DailyStats', 'UserActivity'];
   const table = params.table;
-  
+
   if (!allowedTables.includes(table)) {
     return NextResponse.json({ error: 'Table modification not allowed' }, { status: 403 });
   }
-  
+
   const { id } = await req.json();
-  
+
   if (!id) {
     return NextResponse.json({ error: 'Record ID is required' }, { status: 400 });
   }
-  
+
   try {
     const modelMap: { [key: string]: any } = {
       'DailyStats': db.dailyStats,

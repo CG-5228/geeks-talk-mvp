@@ -12,6 +12,17 @@ const s3Client = new S3Client({
 
 const BUCKET_NAME = process.env.AWS_S3_BUCKET || 'geekstalk-uploads-dev';
 
+function sanitizeFileName(fileName: string): string {
+  const baseName = fileName.split('/').pop()?.split('\\').pop() || 'file';
+  const normalized = baseName
+    .replace(/[^\w.\-()\s]/g, '_')
+    .replace(/\s+/g, '-')
+    .replace(/^\.+/, '')
+    .slice(0, 120);
+
+  return normalized || 'file';
+}
+
 export interface UploadResult {
   key: string;
   url: string;
@@ -24,7 +35,8 @@ export async function uploadToS3(
   folder: string,
   contentType?: string
 ): Promise<UploadResult> {
-  const key = `${folder}/${uuidv4()}-${fileName}`;
+  const safeName = sanitizeFileName(fileName);
+  const key = `${folder}/${uuidv4()}-${safeName}`;
   
   const command = new PutObjectCommand({
     Bucket: BUCKET_NAME,

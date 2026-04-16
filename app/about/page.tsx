@@ -1,4 +1,3 @@
-import dynamic from 'next/dynamic';
 import type { Metadata } from 'next';
 import Hero from '@/components/about/Hero';
 import ValuePills from '@/components/about/ValuePills';
@@ -7,6 +6,7 @@ import Stats from '@/components/about/Stats';
 import Roadmap from '@/components/about/Roadmap';
 import TechStack from '@/components/about/TechStack';
 import CTA from '@/components/about/CTA';
+import ParticlesBackgroundClient from '@/components/auth/ParticlesBackgroundClient';
 
 export const metadata: Metadata = {
   title: 'About • Geeks Talk',
@@ -21,15 +21,11 @@ export const metadata: Metadata = {
   },
 };
 
-const LazyParticles = dynamic(() => import('@/components/auth/ParticlesBackground'), {
-  ssr: false,
-});
-
 export default function AboutPage() {
   return (
     <div className="relative">
   {/* Lighter particles for About (client-only component, dynamically loaded) */}
-  <LazyParticles density={70} zIndex={0} />
+  <ParticlesBackgroundClient density={70} zIndex={0} />
       {/* Radial overlay for subtle focus */}
       <div className="pointer-events-none fixed inset-0 z-[1]" aria-hidden>
         <div className="absolute inset-0 opacity-[0.35] bg-[radial-gradient(60%_40%_at_50%_10%,rgba(255,255,255,0.12),transparent_60%)]" />

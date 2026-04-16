@@ -6,44 +6,42 @@ import { db } from '@/lib/db';
 import { renderBanEmail } from '@/lib/emailTemplates';
 import { sendEmailWithFallback } from '@/lib/emailResend';
 
-export async function POST(
-  req: Request,
-  { params }: { params: { userId: string } }
-) {
+export async function POST(req: Request, props: { params: Promise<{ userId: string }> }) {
+  const params = await props.params;
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
-  
+
   const admin = await isAdmin(session.user.id);
   if (!admin) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
-  
+
   const { reason, duration } = await req.json();
   if (!reason || !duration) {
     return NextResponse.json({ error: 'Reason and duration are required' }, { status: 400 });
   }
-  
+
   const userId = params.userId;
-  
+
   // Check if user exists
   const user = await db.user.findUnique({
     where: { id: userId }
   });
-  
+
   if (!user) {
     return NextResponse.json({ error: 'User not found' }, { status: 404 });
   }
-  
+
   // Prevent banning super admin
   if (user.email === process.env.SUPER_ADMIN_EMAIL) {
     return NextResponse.json({ error: 'Cannot ban super admin' }, { status: 400 });
   }
-  
+
   const expiresAt = new Date();
   expiresAt.setDate(expiresAt.getDate() + duration);
-  
+
   // Create ban record
   const ban = await db.userBan.create({
     data: {
@@ -54,7 +52,7 @@ export async function POST(
       expiresAt
     }
   });
-  
+
   // Create notification
   await db.notification.create({
     data: {
@@ -69,7 +67,7 @@ export async function POST(
       }
     }
   });
-  
+
   // Send email notification
   const emailHtml = renderBanEmail(
     user.name || user.username || 'User',
@@ -77,13 +75,13 @@ export async function POST(
     duration,
     expiresAt
   );
-  
+
   await sendEmailWithFallback({
     subject: 'Account Suspension Notice - Geeks Talk',
     html: emailHtml,
     to: user.email
   });
-  
+
   return NextResponse.json({ 
     message: 'User banned successfully',
     ban: {
@@ -95,10 +93,8 @@ export async function POST(
   });
 }
 
-export async function DELETE(
-  req: Request,
-  { params }: { params: { userId: string } }
-) {
+export async function DELETE(req: Request, props: { params: Promise<{ userId: string }> }) {
+  const params = await props.params;
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });

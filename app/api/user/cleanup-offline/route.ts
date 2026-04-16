@@ -1,26 +1,36 @@
 import { NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth';
+import { isAdmin } from '@/lib/admin';
 import { db } from '@/lib/db';
 
 export async function POST(req: Request) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  const admin = await isAdmin(session.user.id);
+  if (!admin) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  }
+
   try {
-    // Mark users as offline if they haven't been active for more than 10 seconds
-    const tenSecondsAgo = new Date(Date.now() - 10 * 1000);
+    // Mark users as offline if they haven't been active for more than 5 minutes
+    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
 
     const result = await db.user.updateMany({
       where: {
         onlineStatus: 'online',
         lastSeen: {
-          lt: tenSecondsAgo
+          lt: fiveMinutesAgo,
+          not: null
         }
       },
       data: {
         onlineStatus: 'offline'
       }
     });
-
-    if (result.count > 0) {
-      console.log('🧹 Cleanup: Set', result.count, 'users offline (10s threshold)');
-    }
 
     return NextResponse.json({
       success: true,
@@ -31,9 +41,4 @@ export async function POST(req: Request) {
     console.error('🧹 Failed to cleanup offline users:', error);
     return NextResponse.json({ error: 'Failed to cleanup offline users' }, { status: 500 });
   }
-}
-
-// Allow GET for testing
-export async function GET() {
-  return POST(new Request('http://localhost', { method: 'POST' }));
 }

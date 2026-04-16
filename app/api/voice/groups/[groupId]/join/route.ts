@@ -4,10 +4,8 @@ import { authOptions } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { generateLiveKitToken, generateVoiceRoomName } from '@/lib/livekit';
 
-export async function POST(
-  request: NextRequest,
-  { params }: { params: { groupId: string } }
-) {
+export async function POST(request: NextRequest, props: { params: Promise<{ groupId: string }> }) {
+  const params = await props.params;
   try {
     const session = await getServerSession(authOptions);
     if (!session?.user?.id) {

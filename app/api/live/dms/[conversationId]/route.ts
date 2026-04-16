@@ -9,10 +9,8 @@ function createConversationId(userId1: string, userId2: string): string {
 }
 
 // GET /api/live/dms/[conversationId] - Fetch messages for a specific DM conversation
-export async function GET(
-  req: Request,
-  { params }: { params: { conversationId: string } }
-) {
+export async function GET(req: Request, props: { params: Promise<{ conversationId: string }> }) {
+  const params = await props.params;
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -99,10 +97,8 @@ export async function GET(
 }
 
 // PATCH /api/live/dms/[conversationId] - Mark messages as read
-export async function PATCH(
-  req: Request,
-  { params }: { params: { conversationId: string } }
-) {
+export async function PATCH(req: Request, props: { params: Promise<{ conversationId: string }> }) {
+  const params = await props.params;
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });

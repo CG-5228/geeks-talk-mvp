@@ -4,10 +4,8 @@ import { authOptions } from '@/lib/auth';
 import { db } from '@/lib/db';
 
 // DELETE /api/live/dms/message/[messageId] - Unsend a DM message
-export async function DELETE(
-  req: NextRequest,
-  { params }: { params: { messageId: string } }
-) {
+export async function DELETE(req: NextRequest, props: { params: Promise<{ messageId: string }> }) {
+  const params = await props.params;
   try {
     const session = await getServerSession(authOptions);
     if (!session?.user?.id) {
@@ -85,10 +83,8 @@ export async function DELETE(
 }
 
 // GET /api/live/dms/message/[messageId] - Get DM message details (for admin purposes)
-export async function GET(
-  req: NextRequest,
-  { params }: { params: { messageId: string } }
-) {
+export async function GET(req: NextRequest, props: { params: Promise<{ messageId: string }> }) {
+  const params = await props.params;
   try {
     const session = await getServerSession(authOptions);
     if (!session?.user?.id) {

@@ -1,25 +1,67 @@
 import { NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth';
 import { rateLimit } from '@/lib/rateLimit';
 import { createEmailCode, type EmailCodePurpose } from '@/lib/emailCode';
 import { sendEmailWithFallback } from '@/lib/emailResend';
 import { renderVerificationEmail } from '@/lib/emailTemplates';
+import { authOptions } from '@/lib/auth';
+import { isAllowedEmailDomain } from '@/lib/verification';
+import { db } from '@/lib/db';
+import { z } from 'zod';
+
+const RequestCodeSchema = z.object({
+  email: z.string().trim().toLowerCase().email(),
+  purpose: z.enum(['signup', 'reset', 'change']),
+});
+
+function getClientIp(req: Request): string {
+  const forwarded = req.headers.get('x-forwarded-for') || '';
+  return forwarded.split(',')[0]?.trim() || 'local';
+}
 
 export async function POST(req: Request) {
   try {
-    const { email, purpose } = await req.json();
-
-    if (!email || !purpose) {
-      return NextResponse.json({ error: 'Email and purpose are required' }, { status: 400 });
+    const body = await req.json().catch(() => null);
+    const parsed = RequestCodeSchema.safeParse(body);
+    if (!parsed.success) {
+      return NextResponse.json({ error: 'Invalid request payload' }, { status: 400 });
     }
+    const { email, purpose } = parsed.data;
+    const ip = getClientIp(req);
 
-    if (!['signup', 'reset', 'change'].includes(purpose)) {
-      return NextResponse.json({ error: 'Invalid purpose' }, { status: 400 });
-    }
-
-    // Rate limiting
+    // Rate limiting by email and IP.
     const rl = rateLimit(`email-code:${email}`);
-    if (!rl.allowed) {
+    const rlByIp = rateLimit(`email-code-ip:${ip}`, 20, 60_000);
+    if (!rl.allowed || !rlByIp.allowed) {
       return NextResponse.json({ error: 'Too many requests. Please try again later.' }, { status: 429 });
+    }
+
+    if (purpose === 'signup' && !isAllowedEmailDomain(email)) {
+      return NextResponse.json({ error: 'Email provider not supported' }, { status: 400 });
+    }
+
+    if (purpose === 'change') {
+      const session = await getServerSession(authOptions);
+      if (!session?.user?.id || !session.user.email) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      }
+      if (session.user.email.toLowerCase() !== email) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      }
+    }
+
+    if (purpose === 'reset') {
+      const user = await db.user.findUnique({
+        where: { email },
+        select: { id: true }
+      });
+      // Avoid user enumeration by returning a generic success response.
+      if (!user) {
+        return NextResponse.json({
+          success: true,
+          message: 'If the email exists, a verification code has been sent.'
+        });
+      }
     }
 
     // Generate and store the code

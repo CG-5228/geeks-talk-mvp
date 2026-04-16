@@ -6,7 +6,7 @@ import { rateLimit } from '@/lib/rateLimit';
 import { isAllowedEmailDomain, verifyAndConsumeEmailCode } from '@/lib/verification';
 
 export async function POST(req: Request) {
-  const ip = req.headers.get('x-forwarded-for') || 'local';
+  const ip = (req.headers.get('x-forwarded-for') || '').split(',')[0]?.trim() || 'local';
   const rl = rateLimit(`register:${ip}`, 5, 60_000);
   if (!rl.allowed) {
     return NextResponse.json({ error: 'Too many attempts. Please try again later.' }, { status: 429 });

@@ -1,6 +1,6 @@
-import dynamic from 'next/dynamic';
 import type { Metadata } from 'next';
 import BlogList from '@/components/blog/BlogList';
+import ParticlesBackgroundClient from '@/components/auth/ParticlesBackgroundClient';
 
 export const metadata: Metadata = {
   title: 'Blog • Geeks Talk',
@@ -15,15 +15,11 @@ export const metadata: Metadata = {
   },
 };
 
-const LazyParticles = dynamic(() => import('@/components/auth/ParticlesBackground'), {
-  ssr: false,
-});
-
 export default function BlogPage() {
   return (
     <div className="relative min-h-screen">
       {/* Background particles */}
-      <LazyParticles density={50} zIndex={0} />
+      <ParticlesBackgroundClient density={50} zIndex={0} />
       
       {/* Radial overlay for subtle focus */}
       <div className="pointer-events-none fixed inset-0 z-[1]" aria-hidden>

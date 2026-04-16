@@ -3,16 +3,12 @@
 import { useEffect } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRobustOfflineDetection } from '@/utils/useRobustOfflineDetection';
-import { useOfflineCleanup } from '@/utils/useOfflineCleanup';
 
 export default function SessionSharer() {
   const { data: session, status } = useSession();
 
   // Handle robust offline detection for all scenarios
   useRobustOfflineDetection();
-
-  // Run periodic cleanup to mark inactive users as offline
-  useOfflineCleanup();
 
   useEffect(() => {
     if (status === 'loading') return;

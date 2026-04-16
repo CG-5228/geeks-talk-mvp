@@ -2,10 +2,8 @@ import { NextRequest } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 
-export async function GET(
-  request: NextRequest,
-  { params }: { params: { groupId: string } }
-) {
+export async function GET(request: NextRequest, props: { params: Promise<{ groupId: string }> }) {
+  const params = await props.params;
   try {
     const session = await getServerSession(authOptions);
 
@@ -31,10 +29,8 @@ export async function GET(
   }
 }
 
-export async function POST(
-  request: NextRequest,
-  { params }: { params: { groupId: string } }
-) {
+export async function POST(request: NextRequest, props: { params: Promise<{ groupId: string }> }) {
+  const params = await props.params;
   try {
     const session = await getServerSession(authOptions);
 

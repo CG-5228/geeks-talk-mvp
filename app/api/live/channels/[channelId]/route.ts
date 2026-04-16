@@ -3,10 +3,8 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { db } from '@/lib/db';
 
-export async function DELETE(
-  req: Request,
-  { params }: { params: { channelId: string } }
-) {
+export async function DELETE(req: Request, props: { params: Promise<{ channelId: string }> }) {
+  const params = await props.params;
   const session = await getServerSession(authOptions);
   const userId = (session?.user as any)?.id;
 

@@ -22,16 +22,7 @@ setInterval(() => {
  * This hash is temporary and expires after 1 hour
  */
 export function generateSessionAdminHash(userId: string): string {
-  const secret = process.env.ADMIN_HASH_SECRET || 'fallback-secret';
-  const timestamp = Date.now();
-  const random = crypto.randomBytes(16).toString('hex');
-  
-  // Create a unique hash
-  const hash = crypto
-    .createHash('sha256')
-    .update(`${userId}-${timestamp}-${random}-${secret}`)
-    .digest('hex')
-    .substring(0, 32);
+  const hash = crypto.randomBytes(16).toString('hex');
   
   // Store in cache with expiration
   adminHashCache.set(hash, {

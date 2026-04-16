@@ -5,8 +5,9 @@ import { db } from '@/lib/db';
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { groupId: string; pollId: string } }
+  props: { params: Promise<{ groupId: string; pollId: string }> }
 ) {
+  const params = await props.params;
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
