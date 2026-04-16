@@ -1,3 +1,5 @@
+Read and follow `CLAUDE.md` as the primary shared project rule file.
+
 Always use openaiDeveloperDocs first for anything related to:
 - OpenAI API
 - Responses API
