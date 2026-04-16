@@ -73,36 +73,31 @@ export default function ChatDashboard() {
     if (active) {
       const pollInterval = setInterval(() => {
         fetch(`/api/live/messages?channel=${encodeURIComponent(active.id)}&limit=50`)
-          .then(r => r.json())
+          .then(r => (r.ok ? r.json() : null))
           .then((data) => {
-            const newMessages = (data.messages || []) as LiveMessage[];
+            // Bail out if the poll returned an error body or a malformed
+            // payload (e.g. transient 4xx/5xx). Never wipe local state on a
+            // bad poll — that was the cause of messages disappearing a few
+            // seconds after sending on non-general channels.
+            if (!data || !Array.isArray(data.messages)) return;
+            const newMessages = data.messages as LiveMessage[];
             setMessages(prev => {
-              // Check if messages have actually changed
-              if (prev.length !== newMessages.length ||
-                  prev[prev.length - 1]?.id !== newMessages[newMessages.length - 1]?.id) {
-                console.log('🔍 Polling detected message changes');
-                console.log('🔍 Previous messages:', prev.length);
-                console.log('🔍 New messages from server:', newMessages.length);
-                
-                // Preserve optimistic messages (those with tmp- prefix) that haven't been confirmed yet
-                const optimisticMessages = prev.filter(msg => msg.id.startsWith('tmp-'));
-                const confirmedMessages = newMessages.filter(msg => !msg.id.startsWith('tmp-'));
-                
-                console.log('🔍 Optimistic messages to preserve:', optimisticMessages.length);
-                console.log('🔍 Confirmed messages from server:', confirmedMessages.length);
-                
-                // Merge confirmed messages with any remaining optimistic messages
-                const mergedMessages = [...confirmedMessages, ...optimisticMessages];
-                
-                // Sort by creation time to maintain proper order
-                const sortedMessages = mergedMessages.sort((a, b) => 
-                  new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-                );
-                
-                console.log('🔍 Final merged messages:', sortedMessages.length);
-                return sortedMessages;
+              // Fast path: lists look identical, skip work.
+              if (prev.length === newMessages.length &&
+                  prev[prev.length - 1]?.id === newMessages[newMessages.length - 1]?.id) {
+                return prev;
               }
-              return prev;
+              // Union merge: trust the server for any message it returns,
+              // but keep locally-known messages the server hasn't included
+              // yet. This covers both optimistic (tmp-) messages and
+              // just-confirmed messages during the POST / poll race window.
+              const serverIds = new Set(newMessages.map(m => m.id));
+              const localOnly = prev.filter(m => !serverIds.has(m.id));
+              const merged = [...newMessages, ...localOnly];
+              merged.sort((a, b) =>
+                new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+              );
+              return merged;
             });
           })
           .catch(() => {}); // Silent fail for polling
@@ -117,16 +112,27 @@ export default function ChatDashboard() {
     if (activeDM) {
       const pollInterval = setInterval(() => {
         fetch(`/api/live/dms/${activeDM.id}`)
-          .then(r => r.json())
+          .then(r => (r.ok ? r.json() : null))
           .then((data) => {
-            const newMessages = data.messages || [];
+            // Same safety as channel polling: ignore bad payloads rather than
+            // wiping local DM state.
+            if (!data || !Array.isArray(data.messages)) return;
+            const newMessages = data.messages as any[];
             setDMMessages(prev => {
-              // Check if messages have actually changed
-              if (prev.length !== newMessages.length ||
-                  prev[prev.length - 1]?.id !== newMessages[newMessages.length - 1]?.id) {
-                return newMessages;
+              // Fast path: lists look identical, skip work.
+              if (prev.length === newMessages.length &&
+                  prev[prev.length - 1]?.id === newMessages[newMessages.length - 1]?.id) {
+                return prev;
               }
-              return prev;
+              // Union merge — keep optimistic (tmp-dm-) and any locally-known
+              // messages the server response hasn't included yet.
+              const serverIds = new Set(newMessages.map(m => m.id));
+              const localOnly = prev.filter(m => !serverIds.has(m.id));
+              const merged = [...newMessages, ...localOnly];
+              merged.sort((a, b) =>
+                new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+              );
+              return merged;
             });
           })
           .catch(() => {}); // Silent fail for polling
