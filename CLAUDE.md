@@ -40,6 +40,22 @@ Do not guess or rely on memory when documentation or source-of-truth is availabl
 - database schema assumptions
 - internal workflows
 
+### Use `ui-ux-pro-max` skill + Magic MCP FIRST for:
+- Any new page (App Router `page.tsx`)
+- Any new React component (UI, layout, form, modal, chart, etc.)
+- Any greenfield UI work or redesign
+
+Required order for new UI work:
+1. Invoke the `ui-ux-pro-max` skill first to plan/design (styles, palette, layout, UX guidelines)
+2. Use Magic MCP tools (`mcp__magic__21st_magic_component_builder`, `mcp__magic__21st_magic_component_inspiration`, `mcp__magic__21st_magic_component_refiner`, `mcp__magic__logo_search`) to scaffold components before writing custom code
+3. Then apply Context7 for framework-specific APIs (Next.js, React, Tailwind)
+4. Then integrate with existing GeeksTalk patterns
+
+Exceptions (skip skill + Magic MCP):
+- Small edits to existing components (copy, props, bug fixes)
+- Backend-only / API route work
+- Non-visual refactors
+
 ### Conflict resolution:
 - Vendor behavior → trust official docs (Context7 / OpenAI MCP)
 - Project behavior → trust repo and local docs
