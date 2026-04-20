@@ -232,27 +232,27 @@ export async function POST(req: Request) {
     emitToRoom(`channel:${msg.channelId}`, 'message:new', msg);
     return NextResponse.json(msg, { status: 201 });
   } catch (e) {
-    console.error('Error creating message:', e);
-    console.error('Error details:', {
+    // Fail loudly. Previously this branch fabricated a fake 201 response and
+    // pushed the message to an in-memory buffer, which made the client believe
+    // the send succeeded while the row was never persisted to the DB. That's
+    // exactly why messages "disappeared" after switching channels: the next
+    // GET read from the DB and found nothing. Return a real error instead so
+    // the UI can surface the failure and the user can retry.
+    const err = e as { code?: string; meta?: unknown; message?: string };
+    console.error('[POST /api/live/messages] DB write failed', {
       channelId,
       userId: session.user.id,
-      content: content.substring(0, 50) + '...',
-      error: e instanceof Error ? e.message : 'Unknown error'
+      contentPreview: content.slice(0, 80),
+      hasFiles: Array.isArray(files) && files.length > 0,
+      prismaCode: err?.code,
+      prismaMeta: err?.meta,
+      message: err?.message,
+      stack: e instanceof Error ? e.stack : undefined,
     });
-
-    const msg: LiveMessage = {
-      id: Math.random().toString(36).slice(2),
-      channelId,
-      authorId: session.user.id,
-      authorName: session.user.name || 'You',
-      authorImage: session.user.image || null,
-      content,
-      type: 'text' as const,
-      createdAt: new Date().toISOString(),
-    };
-    mem.messages.push(msg);
-    emitToRoom(`channel:${msg.channelId}`, 'message:new', msg);
-    return NextResponse.json(msg, { status: 201 });
+    return NextResponse.json(
+      { error: 'Failed to send message' },
+      { status: 500 }
+    );
   }
 }
 
