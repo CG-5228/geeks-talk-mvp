@@ -58,7 +58,7 @@ export async function POST(req: NextRequest) {
 
     let isLiked: boolean;
     let likesCount: number;
-    let canLike: boolean = true;
+    const canLike: boolean = true;
     let remainingLikes: number = 0;
 
     if (existingLike) {

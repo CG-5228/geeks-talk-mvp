@@ -1,0 +1,16 @@
+#!/bin/sh
+# Pre-commit gate — runs the same checks as the "Format & Type Check" CI so a
+# commit can't be created unless code style (lint) and type checking pass.
+#
+# Wired automatically by the package.json "prepare" script
+# (git config core.hooksPath .githooks). To bypass for a single commit (e.g. a
+# work-in-progress save), use: git commit --no-verify
+set -e
+
+echo "▶ pre-commit: checking code style (npm run lint)…"
+npm run lint
+
+echo "▶ pre-commit: type checking (npm run typecheck)…"
+npm run typecheck
+
+echo "✓ pre-commit checks passed"

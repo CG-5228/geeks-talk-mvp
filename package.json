@@ -9,6 +9,8 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate:deploy": "prisma migrate deploy",
     "lint": "eslint .",
+    "typecheck": "tsc -p tsconfig.typecheck.json",
+    "prepare": "git config core.hooksPath .githooks || true",
     "deploy:setup": "chmod +x deploy/*.sh && echo 'Deployment scripts ready'",
     "deploy:manual": "./deploy/manual-deploy.sh",
     "deploy:rollback": "./deploy/rollback.sh"

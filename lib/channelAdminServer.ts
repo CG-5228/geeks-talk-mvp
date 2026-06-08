@@ -324,7 +324,7 @@ export async function fetchChannelMembers(args: MembersArgs): Promise<{
     : [];
   const countByUser = new Map(counts.map((c) => [c.authorId, c._count.authorId]));
 
-  let rows: ChannelMemberRow[] = users.map((u) => ({
+  const rows: ChannelMemberRow[] = users.map((u) => ({
     id: u.id,
     name: u.name,
     username: u.username,

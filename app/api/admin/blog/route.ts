@@ -82,7 +82,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Generate unique slug
-    let baseSlug = generateSlug(title);
+    const baseSlug = generateSlug(title);
     let slug = baseSlug;
     let counter = 1;
 
@@ -151,7 +151,7 @@ export async function PUT(req: NextRequest) {
     // If title changed, generate new slug
     let slug = existingPost.slug;
     if (title && title !== existingPost.title) {
-      let baseSlug = generateSlug(title);
+      const baseSlug = generateSlug(title);
       slug = baseSlug;
       let counter = 1;
 
