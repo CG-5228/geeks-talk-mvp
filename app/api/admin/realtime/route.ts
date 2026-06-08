@@ -37,9 +37,15 @@ export async function GET(req: Request) {
             totalLikes,
             totalUsers
           ] = await Promise.all([
-            // Current online users
+            // Current online users — must have the online flag AND a fresh
+            // heartbeat. The flag alone gets stale when a client crashes or
+            // force-closes without firing the offline beacon; the lastSeen
+            // window makes the count self-heal between cleanup sweeps.
             db.user.count({
-              where: { onlineStatus: 'online' }
+              where: {
+                onlineStatus: 'online',
+                lastSeen: { gte: new Date(Date.now() - 2 * 60 * 1000) },
+              },
             }),
             
             // Active users (last 24 hours)
@@ -165,7 +171,6 @@ export async function GET(req: Request) {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
       'Connection': 'keep-alive',
-      'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Headers': 'Cache-Control'
     }
   });

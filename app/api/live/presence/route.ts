@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { presenceCounts } from '@/lib/live/presence';
 import { db } from '@/lib/db';
+import { publish } from '@/lib/liveBus';
 
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
@@ -31,15 +32,23 @@ export async function POST(req: Request) {
         }
       });
 
-      // TODO: Broadcast status change via socket
-      // emitToRoom('global', 'user:status', { userId: currentUserId, status });
-
-      return NextResponse.json({ 
-        success: true, 
+      publish('presence', 'presence:update', {
+        userId: currentUserId,
         status,
-        userId: currentUserId 
+        at: new Date().toISOString(),
       });
-    } catch (error) {
+
+      return NextResponse.json({
+        success: true,
+        status,
+        userId: currentUserId,
+      });
+    } catch (error: any) {
+      // P2025: session userId no longer exists (e.g. user deleted, DB reset).
+      // Signal the client to re-authenticate instead of surfacing a 500.
+      if (error?.code === 'P2025') {
+        return NextResponse.json({ error: 'Stale session' }, { status: 401 });
+      }
       console.error('Error updating user status:', error);
       return NextResponse.json({ error: 'Failed to update status' }, { status: 500 });
     }

@@ -3,6 +3,22 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { isAdmin } from '@/lib/admin';
 import { db } from '@/lib/db';
+import { calculateReadingTime } from '@/lib/blog/readingTime';
+
+function normalizeTags(input: unknown): string[] {
+  if (!Array.isArray(input)) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of input) {
+    if (typeof raw !== 'string') continue;
+    const t = raw.trim().toLowerCase().slice(0, 32);
+    if (!t || seen.has(t)) continue;
+    seen.add(t);
+    out.push(t);
+    if (out.length >= 8) break;
+  }
+  return out;
+}
 
 // Helper to generate a URL-friendly slug from title
 function generateSlug(title: string): string {
@@ -33,7 +49,7 @@ export async function GET() {
           select: { name: true, email: true, image: true }
         },
         _count: {
-          select: { comments: true }
+          select: { comments: true, reactions: true }
         }
       }
     });
@@ -59,7 +75,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { title, content, excerpt, coverImage, published } = body;
+    const { title, content, excerpt, coverImage, published, tags, featured } = body;
 
     if (!title || !content) {
       return NextResponse.json({ error: 'Title and content are required' }, { status: 400 });
@@ -84,6 +100,9 @@ export async function POST(req: NextRequest) {
         content,
         excerpt: excerpt || content.substring(0, 200) + '...',
         coverImage: coverImage || null,
+        tags: normalizeTags(tags),
+        featured: Boolean(featured),
+        readingTimeMinutes: calculateReadingTime(content),
         published: published || false,
         publishedAt: published ? new Date() : null,
       },
@@ -92,7 +111,7 @@ export async function POST(req: NextRequest) {
           select: { name: true, email: true, image: true }
         },
         _count: {
-          select: { comments: true }
+          select: { comments: true, reactions: true }
         }
       }
     });
@@ -118,7 +137,7 @@ export async function PUT(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { id, title, content, excerpt, coverImage, published } = body;
+    const { id, title, content, excerpt, coverImage, published, tags, featured } = body;
 
     if (!id) {
       return NextResponse.json({ error: 'Post ID is required' }, { status: 400 });
@@ -154,14 +173,20 @@ export async function PUT(req: NextRequest) {
       publishedAt = null;
     }
 
+    const nextContent = content !== undefined ? content : existingPost.content;
     const post = await db.blogPost.update({
       where: { id },
       data: {
         title: title || existingPost.title,
         slug,
-        content: content !== undefined ? content : existingPost.content,
+        content: nextContent,
         excerpt: excerpt !== undefined ? excerpt : existingPost.excerpt,
         coverImage: coverImage !== undefined ? coverImage : existingPost.coverImage,
+        tags: tags !== undefined ? normalizeTags(tags) : existingPost.tags,
+        featured: featured !== undefined ? Boolean(featured) : existingPost.featured,
+        readingTimeMinutes: content !== undefined
+          ? calculateReadingTime(nextContent)
+          : existingPost.readingTimeMinutes,
         published: published !== undefined ? published : existingPost.published,
         publishedAt,
       },
@@ -170,7 +195,7 @@ export async function PUT(req: NextRequest) {
           select: { name: true, email: true, image: true }
         },
         _count: {
-          select: { comments: true }
+          select: { comments: true, reactions: true }
         }
       }
     });

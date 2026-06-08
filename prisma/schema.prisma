@@ -15,7 +15,13 @@ model User {
   emailVerified          DateTime?
   username               String?                 @unique
   image                  String?
+  coverImage             String?
   bio                    String?
+  pronouns               String?
+  location               String?
+  website                String?
+  socialLinks            Json?
+  displayName            String?
   hashedPassword         String?
   role                   String                  @default("user")
   onlineStatus           String                  @default("offline")
@@ -26,12 +32,29 @@ model User {
   // Privacy settings
   profileVisibility      String                  @default("public") // public, friends, private
   showOnlineStatus       Boolean                 @default(true)
+  showEmailOnProfile     Boolean                 @default(false)
   dmPermissions          String                  @default("everyone") // everyone, friends, nobody
+  // Appearance
+  accentColor            String?                 // hex, optional override of --primary
+  fontScale              String                  @default("md") // sm, md, lg
+  reducedMotion          Boolean                 @default(false)
+  colorBlindMode         String                  @default("off") // off, protanopia, deuteranopia, tritanopia
+  // Notifications
+  emailDigest            String                  @default("weekly") // off, daily, weekly
+  notifyBlogReplies      Boolean                 @default(true)
+  notifyDMs              Boolean                 @default(true)
+  notifyMentions         Boolean                 @default(true)
+  notifyFollows          Boolean                 @default(true)
+  // Security
+  twoFactorEnabled       Boolean                 @default(false)
+  twoFactorSecret        String?
+  twoFactorBackupCodes   String[]                @default([])
   accounts               Account[]
   messagesReceived       AdminMessage[]          @relation("MessagesReceived")
   messagesSent           AdminMessage[]          @relation("MessagesSent")
   granteesAdmin          AdminPermission[]       @relation("AdminGranter")
   adminPermission        AdminPermission?        @relation("AdminUser")
+  adminAuditLogs         AdminAuditLog[]         @relation("AuditAdmin")
   blogComments           BlogComment[]           @relation("BlogCommentAuthor")
   blogPosts              BlogPost[]              @relation("BlogAuthor")
   friendships            Friendship[]            @relation("Friendships")
@@ -40,6 +63,7 @@ model User {
   bugReplies             BugReply[]              @relation("BugReplies")
   contactMessages        ContactMessage[]
   contactReplies         ContactReply[]          @relation("ContactReplies")
+  blogReactions          BlogReaction[]          @relation("BlogReactionUser")
   receivedDMs            DirectMessage[]         @relation("DMReceiver")
   sentDMs                DirectMessage[]         @relation("DMSender")
   emailCodes             EmailCode[]
@@ -70,6 +94,31 @@ model User {
   likeLogsGiven          UserLikeLog[]           @relation("LikeLogsGiven")
   likeLogsReceived       UserLikeLog[]           @relation("LikeLogsReceived")
   announcementDismissals AnnouncementDismissal[]
+  userBadges             UserBadge[]
+}
+
+model Badge {
+  id          String      @id @default(cuid())
+  slug        String      @unique
+  name        String
+  description String
+  icon        String      // lucide icon name or emoji
+  color       String      @default("cyan") // cyan, violet, amber, rose, emerald, slate
+  rarity      String      @default("common") // common, rare, epic, legendary
+  createdAt   DateTime    @default(now())
+  userBadges  UserBadge[]
+}
+
+model UserBadge {
+  id        String   @id @default(cuid())
+  userId    String
+  badgeId   String
+  awardedAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  badge     Badge    @relation(fields: [badgeId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, badgeId])
+  @@index([userId])
 }
 
 model Subject {
@@ -95,20 +144,26 @@ model Thread {
 }
 
 model Room {
-  id           String        @id @default(cuid())
-  name         String
-  slug         String        @unique
-  topic        String?
-  isVoice      Boolean       @default(false)
-  isDM         Boolean       @default(false)
-  participants String[]      @default([])
-  subjectId    String?
-  threadId     String?
-  ownerId      String?
-  category     String        @default("General")
-  visibility   String        @default("public")
-  inviteCode   String?       @unique
-  createdAt    DateTime      @default(now())
+  id                 String        @id @default(cuid())
+  name               String
+  slug               String        @unique
+  topic              String?
+  isVoice            Boolean       @default(false)
+  isDM               Boolean       @default(false)
+  participants       String[]      @default([])
+  subjectId          String?
+  threadId           String?
+  ownerId            String?
+  category           String        @default("General")
+  visibility         String        @default("public")
+  inviteCode         String?       @unique
+  archived           Boolean       @default(false)
+  passwordHash       String?
+  inviteOnly         Boolean       @default(false)
+  allowMemberInvites Boolean       @default(true)
+  slowModeSeconds    Int           @default(0)
+  maxMembers         Int           @default(0)
+  createdAt          DateTime      @default(now())
   messages     Message[]
   owner        User?         @relation("RoomOwner", fields: [ownerId], references: [id])
   subject      Subject?      @relation(fields: [subjectId], references: [id])
@@ -116,6 +171,8 @@ model Room {
   voiceGroups  VoiceGroup[]
   users        User[]        @relation("RoomUsers")
   channelFiles ChannelFile[]
+
+  @@index([archived])
 }
 
 model Message {
@@ -130,11 +187,17 @@ model Message {
   unsent            Boolean       @default(false)
   forwardedFrom     String?
   forwardedFromType String?
+  editedAt          DateTime?
+  pinnedAt          DateTime?
+  pinnedBy          String?
   author            User          @relation(fields: [authorId], references: [id])
   replyTo           Message?      @relation("MessageReply", fields: [replyToId], references: [id])
   replies           Message[]     @relation("MessageReply")
   room              Room          @relation(fields: [roomId], references: [id])
   files             MessageFile[]
+
+  @@index([roomId, pinnedAt])
+  @@index([replyToId])
 }
 
 model VoiceEligibility {
@@ -202,6 +265,7 @@ model DirectMessage {
   unsent            Boolean         @default(false)
   forwardedFrom     String?
   forwardedFromType String?
+  editedAt          DateTime?
   receiver          User            @relation("DMReceiver", fields: [receiverId], references: [id], onDelete: Cascade)
   replyTo           DirectMessage?  @relation("DMReply", fields: [replyToId], references: [id])
   replies           DirectMessage[] @relation("DMReply")
@@ -212,13 +276,20 @@ model DirectMessage {
 }
 
 model ContactMessage {
-  id        String         @id @default(cuid())
-  userId    String
-  subject   String
-  message   String
-  createdAt DateTime       @default(now())
-  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  replies   ContactReply[]
+  id          String         @id @default(cuid())
+  userId      String
+  subject     String
+  message     String
+  topic       String         @default("general") // general, partnership, press, support, billing, feedback
+  attachments String[]       @default([])
+  status      String         @default("new") // new, in-progress, resolved
+  createdAt   DateTime       @default(now())
+  user        User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  replies     ContactReply[]
+
+  @@index([topic])
+  @@index([status])
+  @@index([createdAt])
 }
 
 model BugReport {
@@ -374,7 +445,10 @@ model UserReportAttachment {
   fileSize   Int
   fileType   String
   s3Key      String
-  s3Url      String
+  // Deprecated: presigned URLs live at most 7 days; admin UI re-signs fresh
+  // URLs on demand via /api/admin/reports/attachments/[id]/view. Nullable
+  // so new writes can stop populating it; column retained for now.
+  s3Url      String?
   uploadedAt DateTime   @default(now())
   report     UserReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
 }
@@ -390,12 +464,33 @@ model AdminPermission {
   id            String   @id @default(cuid())
   userId        String   @unique
   adminHash     String   @unique
+  role          String   @default("moderator")
   grantedBy     String?
   createdAt     DateTime @default(now())
   grantedByUser User?    @relation("AdminGranter", fields: [grantedBy], references: [id])
   user          User     @relation("AdminUser", fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([adminHash])
+  @@index([role])
+}
+
+model AdminAuditLog {
+  id         String   @id @default(cuid())
+  adminId    String
+  action     String
+  targetType String?
+  targetId   String?
+  summary    String?
+  metadata   Json?
+  ip         String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+  admin      User     @relation("AuditAdmin", fields: [adminId], references: [id], onDelete: Cascade)
+
+  @@index([adminId, createdAt])
+  @@index([action, createdAt])
+  @@index([targetType, targetId])
+  @@index([createdAt])
 }
 
 model UserBan {
@@ -510,22 +605,43 @@ model BugReply {
 }
 
 model BlogPost {
-  id          String        @id @default(cuid())
-  authorId    String
-  title       String
-  slug        String        @unique
-  content     String
-  excerpt     String?
-  coverImage  String?
-  published   Boolean       @default(false)
-  publishedAt DateTime?
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
-  comments    BlogComment[]
-  author      User          @relation("BlogAuthor", fields: [authorId], references: [id])
+  id                 String         @id @default(cuid())
+  authorId           String
+  title              String
+  slug               String         @unique
+  content            String
+  excerpt            String?
+  coverImage         String?
+  tags               String[]       @default([])
+  featured           Boolean        @default(false)
+  viewCount          Int            @default(0)
+  readingTimeMinutes Int            @default(1)
+  published          Boolean        @default(false)
+  publishedAt        DateTime?
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+  comments           BlogComment[]
+  reactions          BlogReaction[]
+  author             User           @relation("BlogAuthor", fields: [authorId], references: [id])
 
   @@index([published, publishedAt])
   @@index([slug])
+  @@index([featured, publishedAt])
+  @@index([tags])
+}
+
+model BlogReaction {
+  id        String   @id @default(cuid())
+  postId    String
+  userId    String
+  type      String // like, love, insightful, celebrate
+  createdAt DateTime @default(now())
+  post      BlogPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  user      User     @relation("BlogReactionUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([postId, userId, type])
+  @@index([postId])
+  @@index([userId])
 }
 
 model BlogComment {
@@ -673,4 +789,20 @@ model AnnouncementDismissal {
 
   @@index([userId, announcementId])
   @@index([announcementId])
+}
+
+model FeatureFlag {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  label       String?
+  description String?
+  enabled     Boolean  @default(false)
+  rollout     Int      @default(100)
+  audience    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdBy   String?
+  updatedBy   String?
+
+  @@index([enabled])
 }

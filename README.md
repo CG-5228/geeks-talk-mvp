@@ -91,12 +91,12 @@ geeks-talk-mvp
    SMTP_PORT="587"
    SMTP_USER="your-email@gmail.com"
    SMTP_PASS="your-app-password"
-   EMAIL_FROM="no-reply@geekstalk.co"
-   EMAIL_TO="admin@geekstalk.co"
+   EMAIL_FROM="no-reply@geekstalk.org"
+   EMAIL_TO="admin@geekstalk.org"
 
    # Resend API (Alternative to SMTP for verification emails)
    RESEND_API_KEY="your-resend-api-key"
-   EMAIL_NO_REPLY="no-reply@geekstalk.co"
+   EMAIL_NO_REPLY="no-reply@geekstalk.org"
 
    # Email Verification Settings
    VERIFICATION_CODE_TTL_MIN="10"  # Code expires after 10 minutes
@@ -228,7 +228,7 @@ The application includes a comprehensive email verification system for enhanced 
 
 The email verification system uses the following environment variables:
 
-- `EMAIL_NO_REPLY`: The "from" address for verification emails (e.g., "no-reply@geekstalk.co")
+- `EMAIL_NO_REPLY`: The "from" address for verification emails (e.g., "no-reply@geekstalk.org")
 - `VERIFICATION_CODE_TTL_MIN`: How long verification codes remain valid (default: 10 minutes)
 - `VERIFICATION_MAX_ATTEMPTS`: Maximum failed attempts before code is locked (default: 5)
 

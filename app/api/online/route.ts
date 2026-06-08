@@ -19,20 +19,22 @@ export async function GET() {
       where: { lastSeen: { gte: threshold } },
     });
 
-    // Also get the actual users for debugging
-    const users = await db.user.findMany({
-      where: { lastSeen: { gte: threshold } },
-      select: { id: true, name: true, lastSeen: true, onlineStatus: true }
-    });
+    if (process.env.NODE_ENV === 'development') {
+      // Also get the actual users for debugging
+      const users = await db.user.findMany({
+        where: { lastSeen: { gte: threshold } },
+        select: { id: true, name: true, lastSeen: true, onlineStatus: true }
+      });
 
-    console.log('🌐 Online API: Found', onlineUsers, 'online users (threshold: 30s)');
-    console.log('🌐 Online API: Users:', users.map(u => ({
-      id: u.id,
-      name: u.name,
-      lastSeen: u.lastSeen?.toISOString(),
-      onlineStatus: u.onlineStatus,
-      secondsAgo: Math.round((Date.now() - new Date(u.lastSeen || 0).getTime()) / 1000)
-    })));
+      console.log('🌐 Online API: Found', onlineUsers, 'online users (threshold: 30s)');
+      console.log('🌐 Online API: Users:', users.map(u => ({
+        id: u.id,
+        name: u.name,
+        lastSeen: u.lastSeen?.toISOString(),
+        onlineStatus: u.onlineStatus,
+        secondsAgo: Math.round((Date.now() - new Date(u.lastSeen || 0).getTime()) / 1000)
+      })));
+    }
 
     return NextResponse.json({ online: onlineUsers }, { headers: { 'Cache-Control': 'no-store' } });
   } catch (e) {

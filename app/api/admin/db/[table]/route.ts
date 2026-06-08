@@ -1,196 +1,163 @@
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
-import { isAdmin } from '@/lib/admin';
 import { NextResponse } from 'next/server';
-import { db } from '@/lib/db';
+import { requireSuperAdmin } from '@/lib/adminGate';
+import { logAdminAction } from '@/lib/adminAudit';
+import {
+  defaultOrderField,
+  getModel,
+  isScalarField,
+  isWritable,
+  safeSelect,
+  searchableStringFields,
+  serializeBigInt,
+} from '@/lib/dbAdminServer';
+
+const MAX_LIMIT = 200;
+
+type PrismaDelegate = {
+  findMany: (args?: unknown) => Promise<unknown[]>;
+  count: (args?: unknown) => Promise<number>;
+  delete: (args: { where: { id: string } }) => Promise<unknown>;
+};
 
 export async function GET(req: Request, props: { params: Promise<{ table: string }> }) {
   const params = await props.params;
-  const session = await getServerSession(authOptions);
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const gate = await requireSuperAdmin();
+  if (!gate.ok) return gate.response;
+
+  const { table } = params;
+  const model = getModel(table) as PrismaDelegate | null;
+  if (!model) {
+    return NextResponse.json({ error: 'Table not found' }, { status: 404 });
   }
 
-  const admin = await isAdmin(session.user.id);
-  if (!admin) {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-  }
-
-  const table = params.table;
   const { searchParams } = new URL(req.url);
-  const page = parseInt(searchParams.get('page') || '1');
-  const limit = parseInt(searchParams.get('limit') || '50');
 
+  const page = Math.max(1, parseInt(searchParams.get('page') || '1', 10));
+  const limitRaw = parseInt(searchParams.get('limit') || '50', 10);
+  const limit = Math.min(MAX_LIMIT, Math.max(1, Number.isFinite(limitRaw) ? limitRaw : 50));
   const skip = (page - 1) * limit;
 
+  const q = (searchParams.get('q') || '').trim();
+  const orderByRaw = searchParams.get('orderBy') || '';
+  const orderDirRaw = (searchParams.get('orderDir') || 'desc').toLowerCase();
+  const orderDir: 'asc' | 'desc' = orderDirRaw === 'asc' ? 'asc' : 'desc';
+
+  const orderField =
+    orderByRaw && isScalarField(table, orderByRaw) ? orderByRaw : defaultOrderField(table);
+
+  const where: Record<string, unknown> = {};
+  if (q) {
+    const fields = searchableStringFields(table);
+    if (fields.length > 0) {
+      where.OR = fields.map((f) => ({ [f]: { contains: q, mode: 'insensitive' } }));
+    }
+  }
+
   try {
-    // Map table names to Prisma model names
-    const modelMap: { [key: string]: any } = {
-      'User': db.user,
-      'Account': db.account,
-      'Session': db.session,
-      'VerificationToken': db.verificationToken,
-      'Subject': db.subject,
-      'Thread': db.thread,
-      'Room': db.room,
-      'Message': db.message,
-      'VoiceEligibility': db.voiceEligibility,
-      'Follow': db.follow,
-      'DirectMessage': db.directMessage,
-      'ContactMessage': db.contactMessage,
-      'BugReport': db.bugReport,
-      'EmailCode': db.emailCode,
-      'VoiceGroup': db.voiceGroup,
-      'VoiceGroupMember': db.voiceGroupMember,
-      'VoiceGroupFile': db.voiceGroupFile,
-      'VoiceWhiteboard': db.voiceWhiteboard,
-      'VoteKickPoll': db.voteKickPoll,
-      'UserReport': db.userReport,
-      'RandomChatQueue': db.randomChatQueue,
-      'AdminPermission': db.adminPermission,
-      'UserBan': db.userBan,
-      'UserLike': db.userLike,
-      'Notification': db.notification,
-      'AdminMessage': db.adminMessage,
-      'ContactReply': db.contactReply,
-      'BlogPost': db.blogPost,
-      'BlogComment': db.blogComment,
-      'TutorialVideo': db.tutorialVideo,
-      'DailyStats': db.dailyStats,
-      'UserActivity': db.userActivity
-    };
-    
-    const model = modelMap[table];
-    if (!model) {
-      return NextResponse.json({ error: 'Table not found' }, { status: 404 });
-    }
-    
-    // Try to get records with createdAt, fallback to id if createdAt doesn't exist
-    let records, total;
-    try {
-      [records, total] = await Promise.all([
-        model.findMany({
-          skip,
-          take: limit,
-          orderBy: { createdAt: 'desc' }
-        }),
-        model.count()
-      ]);
-    } catch (error) {
-      // If createdAt doesn't exist, try with id
-      [records, total] = await Promise.all([
-        model.findMany({
-          skip,
-          take: limit,
-          orderBy: { id: 'desc' }
-        }),
-        model.count()
-      ]);
-    }
-    
+    const [records, total] = await Promise.all([
+      model.findMany({
+        where: Object.keys(where).length ? where : undefined,
+        select: safeSelect(table),
+        skip,
+        take: limit,
+        orderBy: { [orderField]: orderDir },
+      }),
+      model.count(Object.keys(where).length ? { where } : undefined),
+    ]);
+
     return NextResponse.json({
-      records,
+      records: serializeBigInt(records),
       pagination: {
         page,
         limit,
         total,
-        pages: Math.ceil(total / limit)
-      }
+        pages: Math.max(1, Math.ceil(total / limit)),
+      },
+      order: { field: orderField, dir: orderDir },
+      search: { q, fields: q ? searchableStringFields(table) : [] },
+      writable: isWritable(table),
     });
   } catch (error) {
     console.error('Database query error:', error);
-    return NextResponse.json({ error: 'Failed to fetch data' }, { status: 500 });
-  }
-}
-
-export async function POST(req: Request, props: { params: Promise<{ table: string }> }) {
-  const params = await props.params;
-  const session = await getServerSession(authOptions);
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-
-  const admin = await isAdmin(session.user.id);
-  if (!admin) {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-  }
-
-  // For security, we'll limit which tables can be modified
-  const allowedTables = ['DailyStats', 'UserActivity'];
-  const table = params.table;
-
-  if (!allowedTables.includes(table)) {
-    return NextResponse.json({ error: 'Table modification not allowed' }, { status: 403 });
-  }
-
-  const data = await req.json();
-
-  try {
-    const modelMap: { [key: string]: any } = {
-      'DailyStats': db.dailyStats,
-      'UserActivity': db.userActivity
-    };
-    
-    const model = modelMap[table];
-    if (!model) {
-      return NextResponse.json({ error: 'Table not found' }, { status: 404 });
-    }
-    
-    const record = await model.create({
-      data
-    });
-    
-    return NextResponse.json({ record });
-  } catch (error) {
-    console.error('Database create error:', error);
-    return NextResponse.json({ error: 'Failed to create record' }, { status: 500 });
+    return NextResponse.json(
+      {
+        error: 'Failed to fetch data',
+        detail: error instanceof Error ? error.message : 'Unknown error',
+      },
+      { status: 500 },
+    );
   }
 }
 
 export async function DELETE(req: Request, props: { params: Promise<{ table: string }> }) {
   const params = await props.params;
-  const session = await getServerSession(authOptions);
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const gate = await requireSuperAdmin();
+  if (!gate.ok) return gate.response;
+
+  const { table } = params;
+  if (!isWritable(table)) {
+    return NextResponse.json(
+      { error: `Deletion not allowed on ${table}` },
+      { status: 403 },
+    );
   }
 
-  const admin = await isAdmin(session.user.id);
-  if (!admin) {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  const model = getModel(table) as PrismaDelegate | null;
+  if (!model) {
+    return NextResponse.json({ error: 'Table not found' }, { status: 404 });
   }
 
-  // For security, we'll limit which tables can be modified
-  const allowedTables = ['DailyStats', 'UserActivity'];
-  const table = params.table;
-
-  if (!allowedTables.includes(table)) {
-    return NextResponse.json({ error: 'Table modification not allowed' }, { status: 403 });
+  let body: { id?: unknown; ids?: unknown } = {};
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
   }
 
-  const { id } = await req.json();
+  const ids = Array.isArray(body.ids)
+    ? body.ids.filter((v): v is string => typeof v === 'string')
+    : typeof body.id === 'string'
+      ? [body.id]
+      : [];
 
-  if (!id) {
-    return NextResponse.json({ error: 'Record ID is required' }, { status: 400 });
+  if (ids.length === 0) {
+    return NextResponse.json({ error: 'Record ID required' }, { status: 400 });
   }
 
   try {
-    const modelMap: { [key: string]: any } = {
-      'DailyStats': db.dailyStats,
-      'UserActivity': db.userActivity
-    };
-    
-    const model = modelMap[table];
-    if (!model) {
-      return NextResponse.json({ error: 'Table not found' }, { status: 404 });
-    }
-    
-    await model.delete({
-      where: { id }
+    const results = await Promise.allSettled(
+      ids.map((id) => model.delete({ where: { id } })),
+    );
+
+    const deleted = results.filter((r) => r.status === 'fulfilled').length;
+    const failed = results.length - deleted;
+
+    await logAdminAction({
+      adminId: gate.userId,
+      action: 'db.delete',
+      targetType: table,
+      targetId: ids.length === 1 ? ids[0] : undefined,
+      summary: `Deleted ${deleted}/${ids.length} row${ids.length === 1 ? '' : 's'} from ${table}`,
+      metadata: { table, ids, deleted, failed },
+      req,
     });
-    
-    return NextResponse.json({ message: 'Record deleted successfully' });
+
+    return NextResponse.json({
+      deleted,
+      failed,
+      message:
+        failed === 0
+          ? `Deleted ${deleted} record${deleted === 1 ? '' : 's'}`
+          : `Deleted ${deleted}, failed ${failed}`,
+    });
   } catch (error) {
     console.error('Database delete error:', error);
-    return NextResponse.json({ error: 'Failed to delete record' }, { status: 500 });
+    return NextResponse.json(
+      {
+        error: 'Failed to delete record',
+        detail: error instanceof Error ? error.message : 'Unknown error',
+      },
+      { status: 500 },
+    );
   }
 }

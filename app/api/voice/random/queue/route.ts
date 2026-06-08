@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { redisQueue } from '@/lib/redis';
+import { rateLimit } from '@/lib/rateLimit';
 import { nanoid } from 'nanoid';
 import { z } from 'zod';
 
@@ -10,39 +11,6 @@ import { z } from 'zod';
 const QueueRequestSchema = z.object({
   topics: z.array(z.string().min(1).max(50)).max(10), // Max 10 topics, each 1-50 chars
 });
-
-// Rate limiting store (in production, use Redis)
-const rateLimitStore = new Map<string, { count: number; resetTime: number }>();
-
-// Rate limiting helper
-function checkRateLimit(userId: string, maxRequests: number = 5, windowMs: number = 60000): boolean {
-  const now = Date.now();
-  const userLimit = rateLimitStore.get(userId);
-  
-  if (userLimit) {
-    if (now < userLimit.resetTime) {
-      if (userLimit.count >= maxRequests) {
-        return false;
-      }
-      userLimit.count++;
-    } else {
-      rateLimitStore.set(userId, { count: 1, resetTime: now + windowMs });
-    }
-  } else {
-    rateLimitStore.set(userId, { count: 1, resetTime: now + windowMs });
-  }
-  
-  // Clean up expired entries
-  const keysToDelete: string[] = [];
-  rateLimitStore.forEach((value, key) => {
-    if (now >= value.resetTime) {
-      keysToDelete.push(key);
-    }
-  });
-  keysToDelete.forEach(key => rateLimitStore.delete(key));
-  
-  return true;
-}
 
 // POST /api/voice/random/queue - Enter queue with topics
 export async function POST(request: NextRequest) {
@@ -53,11 +21,10 @@ export async function POST(request: NextRequest) {
 
   const userId = session.user.id;
 
-  // Rate limiting: 5 requests per minute per user
-  if (!checkRateLimit(userId, 5, 60000)) {
-    return NextResponse.json({ 
-      error: 'Rate limit exceeded. Please try again later.' 
-    }, { status: 429 });
+  // Rate limiting: 5 requests per minute per user (shared Redis-backed limiter).
+  const rlPost = await rateLimit(`voice-queue:${userId}`, 5, 60_000);
+  if (!rlPost.allowed) {
+    return NextResponse.json({ error: 'Rate limit exceeded. Please try again later.' }, { status: 429 });
   }
 
   try {
@@ -162,11 +129,10 @@ export async function GET(request: NextRequest) {
 
   const userId = session.user.id;
 
-  // Rate limiting: 30 requests per minute per user for polling
-  if (!checkRateLimit(userId, 30, 60000)) {
-    return NextResponse.json({ 
-      error: 'Rate limit exceeded. Please try again later.' 
-    }, { status: 429 });
+  // Rate limiting: 30 requests per minute per user for polling.
+  const rlGet = await rateLimit(`voice-queue:${userId}`, 30, 60_000);
+  if (!rlGet.allowed) {
+    return NextResponse.json({ error: 'Rate limit exceeded. Please try again later.' }, { status: 429 });
   }
 
   try {
@@ -198,11 +164,10 @@ export async function DELETE(request: NextRequest) {
 
   const userId = session.user.id;
 
-  // Rate limiting: 10 requests per minute per user
-  if (!checkRateLimit(userId, 10, 60000)) {
-    return NextResponse.json({ 
-      error: 'Rate limit exceeded. Please try again later.' 
-    }, { status: 429 });
+  // Rate limiting: 10 requests per minute per user.
+  const rlDel = await rateLimit(`voice-queue:${userId}`, 10, 60_000);
+  if (!rlDel.allowed) {
+    return NextResponse.json({ error: 'Rate limit exceeded. Please try again later.' }, { status: 429 });
   }
 
   try {

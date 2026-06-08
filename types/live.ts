@@ -10,9 +10,25 @@ export type Channel = {
   ownerId?: string | null;
   inviteCode?: string | null;
   createdAt: string;
+  lastMessageAt?: string | null;
+  hasPassword?: boolean;
+  inviteOnly?: boolean;
+  allowMemberInvites?: boolean;
+  slowModeSeconds?: number;
+  maxMembers?: number;
 };
 
 export type LiveCounts = Record<string, number>; // channelId -> online count
+
+export type ReactionSummary = {
+  emoji: string;
+  count: number;
+  users: Array<{
+    id: string;
+    name: string;
+    image?: string | null;
+  }>;
+};
 
 export type LiveMessage = {
   id: string;
@@ -23,6 +39,9 @@ export type LiveMessage = {
   content: string;
   type: 'text' | 'emoji' | 'sticker' | 'image';
   createdAt: string;
+  editedAt?: string | null;
+  pinnedAt?: string | null;
+  pinnedBy?: string | null;
   replyToId?: string | null;
   replyTo?: {
     id: string;
@@ -30,6 +49,7 @@ export type LiveMessage = {
     authorName: string;
     authorImage?: string | null;
   } | null;
+  replyCount?: number;
   files?: {
     id: string;
     name: string;
@@ -42,6 +62,7 @@ export type LiveMessage = {
       image: string | null;
     };
   }[];
+  reactions?: ReactionSummary[];
 };
 
 export type FollowStatus = 'pending' | 'mutual' | 'blocked';

@@ -57,6 +57,7 @@ export async function GET() {
           topic: channel.topic,
           visibility: channel.visibility,
           category: channel.category,
+          archived: channel.archived,
           ownerId: channel.ownerId,
           inviteCode: channel.inviteCode,
           createdAt: channel.createdAt.toISOString(),

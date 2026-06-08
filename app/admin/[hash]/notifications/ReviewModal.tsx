@@ -1,6 +1,33 @@
-"use client";
-import { useEffect, useState } from 'react';
-import { X, User, Mail, Calendar, FileText, AlertTriangle, CheckCircle, Clock, Shield } from 'lucide-react';
+'use client';
+
+import { useCallback, useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
+import {
+  AlertTriangle,
+  Calendar,
+  CheckCircle2,
+  ExternalLink,
+  FileText,
+  Loader2,
+  Mail,
+  RefreshCw,
+  Shield,
+  User as UserIcon,
+  X,
+} from 'lucide-react';
+
+interface ReportUser {
+  id: string;
+  name: string;
+  email: string;
+}
+
+interface ReportAttachment {
+  id: string;
+  fileName: string;
+  fileSize: number;
+  fileType: string;
+}
 
 interface ReportData {
   id: string;
@@ -9,261 +36,343 @@ interface ReportData {
   description?: string;
   status: string;
   createdAt: string;
-  reporter: { id: string; name: string; email: string };
-  reported: { id: string; name: string; email: string };
-  reviewer?: { id: string; name: string; email: string };
-  attachments: Array<{
-    id: string;
-    fileName: string;
-    fileSize: number;
-    fileType: string;
-    s3Url: string;
-  }>;
+  reporter: ReportUser;
+  reported: ReportUser;
+  reviewer?: ReportUser;
+  attachments: ReportAttachment[];
 }
 
-export default function ReviewModal({ reportId, onClose }: { reportId: string; onClose: () => void }) {
+interface ReviewModalProps {
+  reportId: string;
+  onClose: () => void;
+}
+
+const STATUS_STYLE: Record<string, string> = {
+  pending: 'border-amber-500/30 bg-amber-500/15 text-amber-300',
+  reviewed: 'border-emerald-500/30 bg-emerald-500/15 text-emerald-300',
+  resolved: 'border-sky-500/30 bg-sky-500/15 text-sky-300',
+  dismissed: 'border-red-500/30 bg-red-500/15 text-red-300',
+};
+
+const CATEGORY_STYLE: Record<string, string> = {
+  harassment: 'border-red-500/30 bg-red-500/15 text-red-300',
+  spam: 'border-orange-500/30 bg-orange-500/15 text-orange-300',
+  inappropriate: 'border-purple-500/30 bg-purple-500/15 text-purple-300',
+  other: 'border-white/10 bg-white/5 text-muted-foreground',
+};
+
+function formatFileSize(bytes: number): string {
+  if (!bytes) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB'];
+  const i = Math.min(Math.floor(Math.log(bytes) / Math.log(k)), sizes.length - 1);
+  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
+}
+
+function titleCase(value: string): string {
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+export default function ReviewModal({ reportId, onClose }: ReviewModalProps) {
   const [data, setData] = useState<ReportData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    (async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        console.log('🔍 Fetching report details for ID:', reportId);
-        const res = await fetch(`/api/admin/reports/${reportId}`);
-        const json = await res.json();
-        if (!res.ok) throw new Error(json.error || 'Failed to load report');
-        console.log('📄 Report data received:', json.report);
-        console.log('📎 Attachments:', json.report?.attachments);
-        setData(json.report);
-      } catch (e: any) {
-        console.error('❌ Error fetching report:', e);
-        setError(e.message);
-      } finally {
-        setLoading(false);
-      }
-    })();
+    setMounted(true);
+  }, []);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/admin/reports/${reportId}`, { cache: 'no-store' });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to load report');
+      setData(json.report);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to load report');
+    } finally {
+      setLoading(false);
+    }
   }, [reportId]);
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'pending': return 'text-yellow-400 bg-yellow-400/20';
-      case 'reviewed': return 'text-green-400 bg-green-400/20';
-      case 'resolved': return 'text-blue-400 bg-blue-400/20';
-      case 'dismissed': return 'text-red-400 bg-red-400/20';
-      default: return 'text-gray-400 bg-gray-400/20';
-    }
-  };
+  useEffect(() => {
+    void load();
+  }, [load]);
 
-  const getCategoryColor = (category: string) => {
-    switch (category) {
-      case 'harassment': return 'text-red-400 bg-red-400/20';
-      case 'spam': return 'text-orange-400 bg-orange-400/20';
-      case 'inappropriate': return 'text-purple-400 bg-purple-400/20';
-      case 'other': return 'text-gray-400 bg-gray-400/20';
-      default: return 'text-gray-400 bg-gray-400/20';
-    }
-  };
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
 
-  const formatFileSize = (bytes: number) => {
-    if (bytes === 0) return '0 Bytes';
-    const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-  };
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, []);
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative w-full max-w-3xl max-h-[90vh] bg-[#1a1b23] border border-white/20 rounded-xl shadow-2xl overflow-hidden">
-        {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-white/10">
-          <div className="flex items-center gap-3">
-            <Shield className="h-6 w-6 text-[#00d9ff]" />
-            <h3 className="text-xl font-semibold text-white">Report Details</h3>
+  if (!mounted || typeof document === 'undefined') return null;
+
+  const statusKey = data?.status ?? 'pending';
+  const categoryKey = data?.category ?? 'other';
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[10001] flex items-center justify-center p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Report details"
+    >
+      <div
+        className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+        onClick={onClose}
+        aria-hidden="true"
+      />
+
+      <div className="relative flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-xl border border-white/10 bg-[#1a1b23] shadow-2xl">
+        <header className="flex items-center justify-between gap-3 border-b border-white/10 px-5 py-4">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-white/10 bg-white/5">
+              <Shield className="h-4 w-4 text-primary" />
+            </div>
+            <div className="min-w-0">
+              <h2 className="truncate text-base font-semibold text-foreground">Report details</h2>
+              <p className="truncate text-xs text-muted-foreground">
+                Report ID · <span className="font-mono">{reportId.slice(0, 10)}</span>
+              </p>
+            </div>
           </div>
-          <button 
+          <button
+            type="button"
             onClick={onClose}
-            className="p-2 hover:bg-white/10 rounded-lg transition-colors text-white/70 hover:text-white"
+            aria-label="Close"
+            className="rounded-md p-1.5 text-muted-foreground transition hover:bg-white/5 hover:text-foreground"
           >
-            <X className="h-5 w-5" />
+            <X className="h-4 w-4" />
           </button>
-        </div>
+        </header>
 
-        {/* Content */}
-        <div className="p-6 overflow-y-auto max-h-[calc(90vh-120px)]">
+        <div className="flex-1 overflow-y-auto px-5 py-4">
           {loading && (
-            <div className="flex items-center justify-center py-12">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#00d9ff]"></div>
-              <span className="ml-3 text-white/70">Loading report details...</span>
+            <div className="flex flex-col items-center justify-center gap-2 py-16 text-sm text-muted-foreground">
+              <Loader2 className="h-5 w-5 animate-spin text-primary" />
+              <span>Loading report…</span>
             </div>
           )}
 
-          {error && (
-            <div className="flex items-center gap-3 p-4 bg-red-500/20 border border-red-500/30 rounded-lg text-red-400">
-              <AlertTriangle className="h-5 w-5" />
-              <span>{error}</span>
-            </div>
-          )}
-
-          {data && (
-            <div className="space-y-6">
-              {/* Report Overview */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="p-4 bg-white/5 border border-white/10 rounded-lg">
-                  <div className="flex items-center gap-2 mb-2">
-                    <AlertTriangle className="h-4 w-4 text-[#00d9ff]" />
-                    <span className="text-sm text-white/70">Category</span>
-                  </div>
-                  <span className={`px-2 py-1 rounded text-sm font-medium ${getCategoryColor(data.category)}`}>
-                    {data.category.charAt(0).toUpperCase() + data.category.slice(1)}
-                  </span>
-                </div>
-                
-                <div className="p-4 bg-white/5 border border-white/10 rounded-lg">
-                  <div className="flex items-center gap-2 mb-2">
-                    <CheckCircle className="h-4 w-4 text-[#00d9ff]" />
-                    <span className="text-sm text-white/70">Status</span>
-                  </div>
-                  <span className={`px-2 py-1 rounded text-sm font-medium ${getStatusColor(data.status)}`}>
-                    {data.status.charAt(0).toUpperCase() + data.status.slice(1)}
-                  </span>
-                </div>
-                
-                <div className="p-4 bg-white/5 border border-white/10 rounded-lg">
-                  <div className="flex items-center gap-2 mb-2">
-                    <Clock className="h-4 w-4 text-[#00d9ff]" />
-                    <span className="text-sm text-white/70">Reported</span>
-                  </div>
-                  <span className="text-white">{new Date(data.createdAt).toLocaleString()}</span>
-                </div>
+          {error && !loading && (
+            <div className="flex flex-col items-center gap-3 py-12 text-center">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full border border-red-500/30 bg-red-500/10">
+                <AlertTriangle className="h-5 w-5 text-red-300" />
               </div>
+              <div>
+                <p className="text-sm font-medium text-foreground">Could not load report</p>
+                <p className="mt-1 text-xs text-muted-foreground">{error}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => void load()}
+                className="inline-flex items-center gap-1.5 rounded-md border border-white/10 bg-white/5 px-3 py-1.5 text-sm text-foreground transition hover:bg-white/10"
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+                Retry
+              </button>
+            </div>
+          )}
 
-              {/* Report Details */}
-              <div className="space-y-4">
-                <div className="p-4 bg-white/5 border border-white/10 rounded-lg">
-                  <h4 className="text-lg font-medium text-white mb-3 flex items-center gap-2">
-                    <FileText className="h-5 w-5 text-[#00d9ff]" />
-                    Report Details
-                  </h4>
-                  <div className="space-y-3">
-                    <div>
-                      <span className="text-sm text-white/70">Reason:</span>
-                      <p className="text-white mt-1">{data.reason}</p>
-                    </div>
-                    {data.description && (
-                      <div>
-                        <span className="text-sm text-white/70">Description:</span>
-                        <p className="text-white mt-1 whitespace-pre-wrap">{data.description}</p>
-                      </div>
+          {data && !loading && (
+            <div className="space-y-5">
+              <section className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <MetaCard label="Category" icon={<AlertTriangle className="h-3.5 w-3.5" />}>
+                  <span
+                    className={`inline-flex rounded-md border px-2 py-0.5 text-xs font-medium ${
+                      CATEGORY_STYLE[categoryKey] ?? CATEGORY_STYLE.other
+                    }`}
+                  >
+                    {titleCase(data.category)}
+                  </span>
+                </MetaCard>
+                <MetaCard label="Status" icon={<CheckCircle2 className="h-3.5 w-3.5" />}>
+                  <span
+                    className={`inline-flex rounded-md border px-2 py-0.5 text-xs font-medium ${
+                      STATUS_STYLE[statusKey] ?? STATUS_STYLE.pending
+                    }`}
+                  >
+                    {titleCase(data.status)}
+                  </span>
+                </MetaCard>
+                <MetaCard label="Submitted" icon={<Calendar className="h-3.5 w-3.5" />}>
+                  <span className="text-xs text-foreground">
+                    {new Date(data.createdAt).toLocaleString(undefined, {
+                      year: 'numeric',
+                      month: 'short',
+                      day: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}
+                  </span>
+                </MetaCard>
+              </section>
+
+              <section className="rounded-lg border border-white/10 bg-[#16181d] p-4">
+                <h3 className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  <FileText className="h-3.5 w-3.5" /> Reason
+                </h3>
+                <p className="whitespace-pre-wrap break-words text-sm text-foreground">
+                  {data.reason}
+                </p>
+                {data.description && (
+                  <>
+                    <h3 className="mb-2 mt-4 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      Description
+                    </h3>
+                    <p className="whitespace-pre-wrap break-words text-sm text-muted-foreground">
+                      {data.description}
+                    </p>
+                  </>
+                )}
+              </section>
+
+              <section className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                <UserCard
+                  label="Reporter"
+                  user={data.reporter}
+                  accent="text-emerald-300"
+                  accentBorder="border-emerald-500/30"
+                />
+                <UserCard
+                  label="Reported user"
+                  user={data.reported}
+                  accent="text-red-300"
+                  accentBorder="border-red-500/30"
+                />
+              </section>
+
+              {data.attachments && data.attachments.length > 0 && (
+                <section className="rounded-lg border border-white/10 bg-[#16181d] p-4">
+                  <h3 className="mb-3 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    <FileText className="h-3.5 w-3.5" /> Attachments · {data.attachments.length}
+                  </h3>
+                  <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    {data.attachments.map((a) => (
+                      <li
+                        key={a.id}
+                        className="flex items-center justify-between gap-2 rounded-md border border-white/5 bg-white/5 px-3 py-2"
+                      >
+                        <div className="min-w-0">
+                          <p className="truncate text-sm text-foreground" title={a.fileName}>
+                            {a.fileName}
+                          </p>
+                          <p className="text-[11px] text-muted-foreground">
+                            {formatFileSize(a.fileSize)}
+                            {a.fileType ? ` · ${a.fileType}` : ''}
+                          </p>
+                        </div>
+                        <a
+                          href={`/api/admin/reports/attachments/${a.id}/view`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 rounded-md border border-primary/30 bg-primary/10 px-2 py-1 text-[11px] font-medium text-primary transition hover:bg-primary/20"
+                        >
+                          <ExternalLink className="h-3 w-3" />
+                          Open
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
+
+              {data.reviewer && (
+                <section className="rounded-lg border border-white/10 bg-[#16181d] p-4">
+                  <h3 className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    <Shield className="h-3.5 w-3.5" /> Reviewed by
+                  </h3>
+                  <div className="flex items-center gap-2">
+                    <UserIcon className="h-3.5 w-3.5 text-muted-foreground" />
+                    <span className="text-sm text-foreground">{data.reviewer.name}</span>
+                    {data.reviewer.email && (
+                      <>
+                        <span className="text-muted-foreground">·</span>
+                        <span className="text-xs text-muted-foreground">{data.reviewer.email}</span>
+                      </>
                     )}
                   </div>
-                </div>
-
-                {/* Users Involved */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="p-4 bg-white/5 border border-white/10 rounded-lg">
-                    <h4 className="text-lg font-medium text-white mb-3 flex items-center gap-2">
-                      <User className="h-5 w-5 text-green-400" />
-                      Reporter
-                    </h4>
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-2">
-                        <User className="h-4 w-4 text-white/50" />
-                        <span className="text-white">{data.reporter.name}</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Mail className="h-4 w-4 text-white/50" />
-                        <span className="text-white/70">{data.reporter.email}</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="p-4 bg-white/5 border border-white/10 rounded-lg">
-                    <h4 className="text-lg font-medium text-white mb-3 flex items-center gap-2">
-                      <User className="h-5 w-5 text-red-400" />
-                      Reported User
-                    </h4>
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-2">
-                        <User className="h-4 w-4 text-white/50" />
-                        <span className="text-white">{data.reported.name}</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Mail className="h-4 w-4 text-white/50" />
-                        <span className="text-white/70">{data.reported.email}</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Attachments */}
-                {data.attachments && data.attachments.length > 0 && (
-                  <div className="p-4 bg-white/5 border border-white/10 rounded-lg">
-                    <h4 className="text-lg font-medium text-white mb-3 flex items-center gap-2">
-                      <FileText className="h-5 w-5 text-[#00d9ff]" />
-                      Attachments ({data.attachments.length})
-                    </h4>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      {data.attachments.map((attachment) => (
-                        <div key={attachment.id} className="p-3 bg-white/5 border border-white/10 rounded-lg">
-                          <div className="flex items-center justify-between">
-                            <div className="flex-1 min-w-0">
-                              <p className="text-white truncate">{attachment.fileName}</p>
-                              <p className="text-sm text-white/50">{formatFileSize(attachment.fileSize)}</p>
-                            </div>
-                            <a
-                              href={attachment.s3Url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="ml-2 px-3 py-1 bg-[#00d9ff]/20 hover:bg-[#00d9ff]/30 text-[#00d9ff] rounded text-sm transition-colors"
-                            >
-                              View
-                            </a>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Reviewer Info */}
-                {data.reviewer && (
-                  <div className="p-4 bg-white/5 border border-white/10 rounded-lg">
-                    <h4 className="text-lg font-medium text-white mb-3 flex items-center gap-2">
-                      <Shield className="h-5 w-5 text-[#00d9ff]" />
-                      Reviewed By
-                    </h4>
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-2">
-                        <User className="h-4 w-4 text-white/50" />
-                        <span className="text-white">{data.reviewer.name}</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Mail className="h-4 w-4 text-white/50" />
-                        <span className="text-white/70">{data.reviewer.email}</span>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
+                </section>
+              )}
             </div>
           )}
         </div>
 
-        {/* Footer */}
-        <div className="flex justify-end gap-3 p-6 border-t border-white/10">
+        <footer className="flex items-center justify-end gap-2 border-t border-white/10 bg-[#14161b] px-5 py-3">
           <button
+            type="button"
             onClick={onClose}
-            className="px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-lg transition-colors"
+            className="rounded-md border border-white/10 bg-white/5 px-3 py-1.5 text-sm text-muted-foreground transition hover:bg-white/10 hover:text-foreground"
           >
             Close
           </button>
-        </div>
+        </footer>
       </div>
+    </div>,
+    document.body,
+  );
+}
+
+function MetaCard({
+  label,
+  icon,
+  children,
+}: {
+  label: string;
+  icon: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-lg border border-white/10 bg-[#16181d] p-3">
+      <div className="mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+        {icon}
+        {label}
+      </div>
+      <div>{children}</div>
+    </div>
+  );
+}
+
+function UserCard({
+  label,
+  user,
+  accent,
+  accentBorder,
+}: {
+  label: string;
+  user: ReportUser;
+  accent: string;
+  accentBorder: string;
+}) {
+  return (
+    <div className={`rounded-lg border bg-[#16181d] p-4 ${accentBorder}`}>
+      <h3 className={`mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider ${accent}`}>
+        <UserIcon className="h-3.5 w-3.5" />
+        {label}
+      </h3>
+      <p className="text-sm text-foreground">{user.name || 'Unknown user'}</p>
+      {user.email && (
+        <p className="mt-0.5 inline-flex items-center gap-1 text-xs text-muted-foreground">
+          <Mail className="h-3 w-3" />
+          {user.email}
+        </p>
+      )}
     </div>
   );
 }

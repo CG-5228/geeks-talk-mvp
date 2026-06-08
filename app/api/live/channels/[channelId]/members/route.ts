@@ -55,8 +55,7 @@ export async function GET(request: NextRequest, props: { params: Promise<{ chann
         ...(search && {
           OR: [
             { name: { contains: search, mode: 'insensitive' } },
-            { username: { contains: search, mode: 'insensitive' } },
-            { email: { contains: search, mode: 'insensitive' } }
+            { username: { contains: search, mode: 'insensitive' } }
           ]
         })
       },
@@ -64,7 +63,6 @@ export async function GET(request: NextRequest, props: { params: Promise<{ chann
         id: true,
         name: true,
         username: true,
-        email: true,
         image: true,
         onlineStatus: true,
         lastSeen: true,

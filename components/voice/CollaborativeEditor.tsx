@@ -76,15 +76,28 @@ export default function CollaborativeEditor({
   useEffect(() => {
     // Initialize Yjs document and WebSocket provider for collaboration
     if (typeof window !== 'undefined') {
-      import('yjs').then(({ Doc }) => {
+      import('yjs').then(async ({ Doc }) => {
         const yDoc = new Doc();
         setDoc(yDoc);
 
-        // Create WebSocket provider
+        // Fetch a short-lived collaboration token (granted only to group members).
+        // The Yjs WS server rejects connections without a valid token for this group.
+        let token = '';
+        try {
+          const res = await fetch(`/api/collaboration/token?groupId=${encodeURIComponent(groupId)}`);
+          if (res.ok) token = (await res.json())?.token || '';
+        } catch {
+          // No token — the WS server will reject the connection below.
+        }
+
+        // Create WebSocket provider. URL comes from env so prod points at the
+        // deployed collaboration server (defaults to the local dev server).
+        const wsUrl = process.env.NEXT_PUBLIC_COLLAB_WS_URL || 'ws://localhost:3001';
         const wsProvider = new WebsocketProvider(
-          `ws://localhost:3001`,
+          wsUrl,
           groupId,
-          yDoc
+          yDoc,
+          { params: { token } }
         );
 
         setProvider(wsProvider);

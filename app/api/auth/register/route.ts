@@ -3,11 +3,12 @@ import { RegisterSchema } from '@/lib/validators';
 import { db } from '@/lib/db';
 import { hashPassword } from '@/lib/password';
 import { rateLimit } from '@/lib/rateLimit';
-import { isAllowedEmailDomain, verifyAndConsumeEmailCode } from '@/lib/verification';
+import { isAllowedEmailDomain } from '@/lib/verification';
+import { verifyEmailCode } from '@/lib/emailCode';
 
 export async function POST(req: Request) {
   const ip = (req.headers.get('x-forwarded-for') || '').split(',')[0]?.trim() || 'local';
-  const rl = rateLimit(`register:${ip}`, 5, 60_000);
+  const rl = await rateLimit(`register:${ip}`, 5, 60_000);
   if (!rl.allowed) {
     return NextResponse.json({ error: 'Too many attempts. Please try again later.' }, { status: 429 });
   }
@@ -39,8 +40,8 @@ export async function POST(req: Request) {
   if (!code) {
     return NextResponse.json({ error: 'Verification code required', fieldErrors: { code: ['Verification code required'] } }, { status: 400 });
   }
-  const verification = await verifyAndConsumeEmailCode(email, 'signup', code);
-  if (!verification.ok) {
+  const verification = await verifyEmailCode(email, code, 'signup');
+  if (!verification.valid) {
     return NextResponse.json({ error: 'Invalid verification code', fieldErrors: { code: ['Invalid or expired code'] } }, { status: 400 });
   }
 

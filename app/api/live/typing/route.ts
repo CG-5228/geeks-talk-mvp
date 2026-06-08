@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { emitToRoom } from '@/lib/socket';
+import { canAccessRoom, getAccessibleRoom } from '@/lib/live/access';
 
 // POST /api/live/typing - Broadcast typing indicator
 export async function POST(req: Request) {
@@ -14,6 +15,11 @@ export async function POST(req: Request) {
   
   if (!channelId || typeof isTyping !== 'boolean') {
     return NextResponse.json({ error: 'channelId and isTyping are required' }, { status: 400 });
+  }
+
+  const room = await getAccessibleRoom(channelId);
+  if (!room || !canAccessRoom(room, session.user.id)) {
+    return NextResponse.json({ error: 'Access denied' }, { status: 403 });
   }
 
   const userId = (session.user as any).id;

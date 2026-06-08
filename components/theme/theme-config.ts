@@ -9,14 +9,14 @@ export const THEMES = [
       { color: 'hsl(220 15% 25%)', name: 'gray' }
     ]
   },
-  { 
-    id: 'light', 
-    label: 'Light', 
+  {
+    id: 'light',
+    label: 'Dim',
     preview: [
-      { color: 'hsl(210 100% 50%)', name: 'blue' },
-      { color: 'hsl(270 60% 50%)', name: 'purple' },
-      { color: 'hsl(340 80% 55%)', name: 'pink' },
-      { color: 'hsl(220 20% 20%)', name: 'dark-gray' }
+      { color: 'hsl(220 14% 20%)', name: 'slate' },
+      { color: 'hsl(210 100% 65%)', name: 'blue' },
+      { color: 'hsl(265 85% 72%)', name: 'accent' },
+      { color: 'hsl(210 24% 96%)', name: 'text' }
     ]
   },
   { 
@@ -49,14 +49,14 @@ export const THEMES = [
       { color: 'hsl(220 15% 25%)', name: 'gray' }
     ]
   },
-  { 
-    id: 'nix-light', 
-    label: 'Nix Light', 
+  {
+    id: 'nix-light',
+    label: 'Nix Dim',
     preview: [
-      { color: 'hsl(155 75% 45%)', name: 'green' },
-      { color: 'hsl(170 70% 40%)', name: 'teal' },
-      { color: 'hsl(185 80% 45%)', name: 'cyan' },
-      { color: 'hsl(220 20% 20%)', name: 'dark-gray' }
+      { color: 'hsl(160 10% 20%)', name: 'slate-green' },
+      { color: 'hsl(155 70% 58%)', name: 'green' },
+      { color: 'hsl(170 70% 58%)', name: 'teal' },
+      { color: 'hsl(210 24% 96%)', name: 'text' }
     ]
   },
   { 

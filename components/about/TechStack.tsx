@@ -2,27 +2,51 @@ import { Code2, Database, Palette, Server, Wifi, Layers } from 'lucide-react';
 
 export default function TechStack() {
   const tools = [
-    { name: 'Next.js', icon: Code2 },
-    { name: 'React', icon: Code2 },
-    { name: 'Tailwind CSS', icon: Palette },
-    { name: 'Prisma', icon: Layers },
-    { name: 'PostgreSQL', icon: Database },
-    { name: 'WebRTC', icon: Wifi },
+    { name: 'Next.js', slug: 'next', icon: Code2, featured: true, note: 'App Router · RSC' },
+    { name: 'React', slug: 'react', icon: Layers, note: '18.2' },
+    { name: 'Tailwind', slug: 'tailwind', icon: Palette, note: 'v3' },
+    { name: 'Prisma', slug: 'prisma', icon: Server, note: 'ORM' },
+    { name: 'PostgreSQL', slug: 'postgres', icon: Database, note: 'Primary DB' },
+    { name: 'WebRTC', slug: 'webrtc', icon: Wifi, note: 'LiveKit' },
   ];
-  
+
   return (
-    <section aria-label="The stack" className="border-t border-border/20">
-      <div className="h-1 bg-gradient-to-r from-primary/30 via-transparent to-transparent" />
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
-        <h2 className="text-2xl sm:text-3xl font-semibold text-foreground">The stack</h2>
-        <div className="mt-8 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
-          {tools.map(({ name, icon: Icon }) => (
-            <div 
-              key={name} 
-              className="relative rounded-xl p-4 bg-card/30 border border-border/20 backdrop-blur-xl flex flex-col items-center justify-center text-center gap-3"
+    <section aria-label="The stack" className="relative">
+      <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-20 sm:py-24">
+        <div className="max-w-2xl">
+          <p className="text-xs font-mono uppercase tracking-[0.2em] text-[color:hsl(var(--primary))]">
+            Under the hood
+          </p>
+          <h2 className="mt-2 text-3xl sm:text-4xl font-semibold tracking-tight text-[rgba(236,245,255,0.98)]">
+            The stack
+          </h2>
+        </div>
+
+        <div className="mt-10 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+          {tools.map(({ name, icon: Icon, note, featured }) => (
+            <div
+              key={name}
+              className={`group relative overflow-hidden rounded-2xl p-5 bg-[color:var(--card-bg)]/40 border border-white/[0.06] backdrop-blur-xl shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] transition-all duration-300 hover:border-[color:hsl(var(--primary)/0.3)] hover:-translate-y-0.5 ${featured ? 'lg:col-span-2 lg:row-span-1' : ''}`}
             >
-              <Icon className="h-6 w-6 text-primary" aria-hidden="true" />
-              <span className="text-sm font-medium text-foreground">{name}</span>
+              {featured && (
+                <div
+                  aria-hidden
+                  className="pointer-events-none absolute -right-10 -top-10 h-36 w-36 rounded-full bg-[radial-gradient(closest-side,hsl(var(--primary)/0.2),transparent_70%)] blur-2xl"
+                />
+              )}
+              <div className="relative flex items-center gap-3">
+                <div className="inline-flex size-10 items-center justify-center rounded-lg bg-[color:hsl(var(--primary)/0.08)] ring-1 ring-[color:hsl(var(--primary)/0.2)]">
+                  <Icon className="h-5 w-5 text-[color:hsl(var(--primary))]" aria-hidden="true" />
+                </div>
+                <div className="min-w-0">
+                  <div className="font-mono text-sm font-medium text-[rgba(236,245,255,0.95)] truncate">
+                    {name}
+                  </div>
+                  <div className="text-[11px] text-[rgba(220,235,255,0.55)] truncate">
+                    {note}
+                  </div>
+                </div>
+              </div>
             </div>
           ))}
         </div>

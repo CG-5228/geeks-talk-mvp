@@ -24,22 +24,25 @@ export const metadata: Metadata = {
 export default function AboutPage() {
   return (
     <div className="relative">
-  {/* Lighter particles for About (client-only component, dynamically loaded) */}
-  <ParticlesBackgroundClient density={70} zIndex={0} />
-      {/* Radial overlay for subtle focus */}
+      <ParticlesBackgroundClient density={70} zIndex={0} />
       <div className="pointer-events-none fixed inset-0 z-[1]" aria-hidden>
         <div className="absolute inset-0 opacity-[0.35] bg-[radial-gradient(60%_40%_at_50%_10%,rgba(255,255,255,0.12),transparent_60%)]" />
       </div>
 
       <main className="relative z-[2]">
         <Hero />
-        <section className="border-t border-[color:var(--nav-border)]/20" aria-label="Mission">
-          <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-12 sm:py-16">
+
+        <section aria-label="Mission" className="relative">
+          <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-16 sm:py-20">
             <div className="max-w-3xl">
-              <h2 className="text-2xl sm:text-3xl font-semibold tracking-tight text-[rgba(236,245,255,0.95)]">Why we exist</h2>
-              <p className="mt-3 text-[rgba(220,235,255,0.85)]">
-                We believe great work happens in public. Geeks Talk turns solitary grind into collaborative
-                momentum—fast answers, generous peers, and a welcoming place to ship your next win.
+              <p className="text-xs font-mono uppercase tracking-[0.2em] text-[color:hsl(var(--primary))]">
+                Our mission
+              </p>
+              <h2 className="mt-2 text-3xl sm:text-4xl font-semibold tracking-tight text-[rgba(236,245,255,0.98)]">
+                Great work happens in public.
+              </h2>
+              <p className="mt-5 text-lg text-[rgba(220,235,255,0.8)] leading-relaxed">
+                Geeks Talk turns solitary grind into collaborative momentum — fast answers, generous peers, and a welcoming place to ship your next win. We&apos;re building the space we wish existed when we were stuck on our first bug at 2am.
               </p>
             </div>
           </div>

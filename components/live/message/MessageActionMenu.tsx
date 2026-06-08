@@ -1,7 +1,7 @@
 "use client";
 import { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { Smile, Reply, Share, Trash2 } from 'lucide-react';
+import { Smile, Reply, Share, Trash2, Pencil, Pin, PinOff, Copy, MessagesSquare } from 'lucide-react';
 import ReactionPicker from '@/components/live/reactions/ReactionPicker';
 import ForwardMessageModal from './ForwardMessageModal';
 import { useNotifications } from '@/components/ui/NotificationSystem';
@@ -14,8 +14,13 @@ interface MessageActionMenuProps {
   onReply?: (message: { id: string; content: string; authorName: string; authorImage?: string | null }) => void;
   onForward?: (message: { id: string; content: string; authorName: string; authorImage?: string | null }) => void;
   onUnsend?: () => void;
+  onEdit?: () => void;
+  onOpenThread?: () => void;
+  onTogglePin?: () => void;
   anchorRef: React.RefObject<HTMLElement>;
   isOwnMessage?: boolean;
+  canPin?: boolean;
+  isPinned?: boolean;
   message?: {
     id: string;
     content: string;
@@ -32,8 +37,13 @@ export default function MessageActionMenu({
   onReply,
   onForward,
   onUnsend,
+  onEdit,
+  onOpenThread,
+  onTogglePin,
   anchorRef,
   isOwnMessage = false,
+  canPin = false,
+  isPinned = false,
   message
 }: MessageActionMenuProps) {
   const [showReactionPicker, setShowReactionPicker] = useState(false);
@@ -47,6 +57,18 @@ export default function MessageActionMenu({
   }, []);
 
   const handleReact = async (emoji: string) => {
+    // Close menus immediately and notify ReactionDisplay to optimistically render the chip
+    // before the network round-trip completes.
+    setShowReactionPicker(false);
+    onClose();
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('chat:reaction-toggle', {
+          detail: { messageId, messageType, emoji },
+        })
+      );
+    }
+
     try {
       const endpoint = messageType === 'channel'
         ? `/api/live/messages/${messageId}/reactions`
@@ -60,19 +82,13 @@ export default function MessageActionMenu({
         body: JSON.stringify({ emoji }),
       });
 
-      if (response.ok) {
-        const data = await response.json();
-
-      } else {
-        const errorData = await response.json();
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
         console.error('Failed to manage reaction:', errorData.error);
       }
     } catch (error) {
       console.error('Error adding reaction:', error);
     }
-
-    setShowReactionPicker(false);
-    onClose();
   };
 
   const handleUnsend = () => {
@@ -180,6 +196,67 @@ export default function MessageActionMenu({
             <Share className="w-4 h-4 text-[rgba(220,235,255,0.7)]" />
             <span className="text-[rgba(220,235,255,0.9)]">Forward</span>
           </button>
+
+          {messageType === 'channel' && onOpenThread && (
+            <button
+              onClick={() => {
+                onOpenThread();
+                onClose();
+              }}
+              className="w-full flex items-center gap-3 px-3 py-2 rounded-md hover:bg-white/5 transition-colors text-left"
+            >
+              <MessagesSquare className="w-4 h-4 text-[rgba(220,235,255,0.7)]" />
+              <span className="text-[rgba(220,235,255,0.9)]">Open thread</span>
+            </button>
+          )}
+
+          {message && (
+            <button
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(message.content);
+                  showNotification({ type: 'success', title: 'Copied', message: 'Message copied to clipboard.' });
+                } catch {
+                  showNotification({ type: 'error', title: 'Copy failed', message: 'Clipboard unavailable.' });
+                }
+                onClose();
+              }}
+              className="w-full flex items-center gap-3 px-3 py-2 rounded-md hover:bg-white/5 transition-colors text-left"
+            >
+              <Copy className="w-4 h-4 text-[rgba(220,235,255,0.7)]" />
+              <span className="text-[rgba(220,235,255,0.9)]">Copy text</span>
+            </button>
+          )}
+
+          {messageType === 'channel' && canPin && onTogglePin && (
+            <button
+              onClick={() => {
+                onTogglePin();
+                onClose();
+              }}
+              className="w-full flex items-center gap-3 px-3 py-2 rounded-md hover:bg-white/5 transition-colors text-left"
+            >
+              {isPinned ? (
+                <PinOff className="w-4 h-4 text-[rgba(220,235,255,0.7)]" />
+              ) : (
+                <Pin className="w-4 h-4 text-[rgba(220,235,255,0.7)]" />
+              )}
+              <span className="text-[rgba(220,235,255,0.9)]">{isPinned ? 'Unpin' : 'Pin'}</span>
+            </button>
+          )}
+
+          {onEdit && isOwnMessage && (
+            <button
+              onClick={() => {
+                onEdit();
+                onClose();
+              }}
+              className="w-full flex items-center gap-3 px-3 py-2 rounded-md hover:bg-white/5 transition-colors text-left"
+            >
+              <Pencil className="w-4 h-4 text-[rgba(220,235,255,0.7)]" />
+              <span className="text-[rgba(220,235,255,0.9)]">Edit</span>
+            </button>
+          )}
 
           {onUnsend && isOwnMessage && (
             <button

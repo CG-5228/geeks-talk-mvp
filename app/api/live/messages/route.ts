@@ -4,25 +4,32 @@ import { authOptions } from '@/lib/auth';
 import { db } from '@/lib/db';
 import type { LiveMessage } from '@/types/live';
 import { emitToRoom } from '@/lib/socket';
+import { aggregateReactionsByMessage } from '@/lib/reactions';
+import { requireNotBanned } from '@/lib/banEnforce';
+import { canAccessRoom, getAccessibleRoom } from '@/lib/live/access';
 
 // In-memory fallback for local/dev without DB
 const mem: { messages: LiveMessage[] } = { messages: [] };
 
 // GET /api/live/messages?channel=<id|slug>&cursor=<id>&limit=50
 export async function GET(req: Request) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const { searchParams } = new URL(req.url);
   const channel = searchParams.get('channel');
   const cursor = searchParams.get('cursor');
   const limit = Math.min(parseInt(searchParams.get('limit') || '50', 10) || 50, 100);
   if (!channel) return NextResponse.json({ error: 'Missing channel' }, { status: 400 });
   try {
-    let roomId = channel;
-    // Accept both slug and IDs (UUID or Prisma CUID)
-    if (!(isUUID(channel) || isCuid(channel))) {
-      const room = await db.room.findUnique({ where: { slug: channel } });
-      if (!room) return NextResponse.json({ error: 'Channel not found' }, { status: 404 });
-      roomId = room.id;
+    // Resolve the channel (id or slug) and verify the caller may read it. The
+    // GET path previously had no auth or membership check, so any visitor could
+    // read any channel's messages — including private channels — by id or slug.
+    const room = await getAccessibleRoom(channel);
+    if (!room) return NextResponse.json({ error: 'Channel not found' }, { status: 404 });
+    if (!canAccessRoom(room, session.user.id)) {
+      return NextResponse.json({ error: 'Access denied to channel' }, { status: 403 });
     }
+    const roomId = room.id;
     const items = await db.message.findMany({
       where: {
         roomId,
@@ -60,6 +67,16 @@ export async function GET(req: Request) {
       },
     });
     const nextCursor = items.length === limit ? items[items.length - 1].id : null;
+    const reactionMap = await aggregateReactionsByMessage(items.map((m) => m.id), 'channel');
+    // Count replies per message (threads are a reuse of replyToId)
+    const replyCounts = await db.message.groupBy({
+      by: ['replyToId'],
+      where: { replyToId: { in: items.map((m) => m.id) }, unsent: false },
+      _count: { _all: true },
+    });
+    const replyCountMap = Object.fromEntries(
+      replyCounts.map((r) => [r.replyToId as string, r._count._all])
+    );
     const messages: LiveMessage[] = items
       .map((m) => ({
         id: m.id,
@@ -70,6 +87,9 @@ export async function GET(req: Request) {
         content: m.content,
         type: 'text' as const,
         createdAt: m.createdAt instanceof Date ? m.createdAt.toISOString() : m.createdAt,
+        editedAt: m.editedAt ? (m.editedAt instanceof Date ? m.editedAt.toISOString() : m.editedAt) : null,
+        pinnedAt: m.pinnedAt ? (m.pinnedAt instanceof Date ? m.pinnedAt.toISOString() : m.pinnedAt) : null,
+        pinnedBy: m.pinnedBy ?? null,
         replyToId: m.replyToId,
         replyTo: m.replyTo ? {
           id: m.replyTo.id,
@@ -77,11 +97,12 @@ export async function GET(req: Request) {
           authorName: m.replyTo.author?.name || 'User',
           authorImage: m.replyTo.author?.image || null,
         } : null,
+        replyCount: replyCountMap[m.id] ?? 0,
         files: m.files?.map(f => ({
           id: f.file.id,
           name: f.file.fileName,
           type: f.file.fileType,
-          url: f.file.fileType.startsWith('image/') 
+          url: f.file.fileType.startsWith('image/')
             ? `/api/live/channels/${m.roomId}/files/${f.file.id}/view` // View URL for images
             : `/api/live/channels/${m.roomId}/files/${f.file.id}`, // Download URL for other files
           size: f.file.fileSize,
@@ -91,6 +112,7 @@ export async function GET(req: Request) {
             image: f.file.uploader.image
           }
         })) || [],
+        reactions: reactionMap[m.id] || [],
       }))
       .reverse();
     return NextResponse.json({ messages, nextCursor });
@@ -108,6 +130,8 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const banCheck = await requireNotBanned(session.user.id);
+  if (!banCheck.ok) return banCheck.response;
   const body = await req.json().catch(() => null);
   const channelId = body?.channelId;
   const content = (body?.content || '').toString();
@@ -168,10 +192,10 @@ export async function POST(req: Request) {
     }
 
     const created = await db.message.create({
-      data: { 
-        roomId, 
-        authorId: session.user.id, 
-        content: messageContent, 
+      data: {
+        roomId,
+        authorId: session.user.id,
+        content: messageContent,
         replyToId,
         // Create MessageFile records for each attached file
         files: files && files.length > 0 ? {
@@ -180,8 +204,15 @@ export async function POST(req: Request) {
           }))
         } : undefined
       },
-      include: { 
+      include: {
         author: { select: { id: true, name: true, image: true } },
+        replyTo: {
+          select: {
+            id: true,
+            content: true,
+            author: { select: { id: true, name: true, image: true } },
+          },
+        },
         files: {
           include: {
             file: {
@@ -212,6 +243,19 @@ export async function POST(req: Request) {
       content: created.content,
       type: 'text' as const,
       createdAt: created.createdAt instanceof Date ? created.createdAt.toISOString() : created.createdAt,
+      editedAt: null,
+      pinnedAt: null,
+      pinnedBy: null,
+      replyCount: 0,
+      replyToId: created.replyToId ?? undefined,
+      replyTo: created.replyTo
+        ? {
+            id: created.replyTo.id,
+            content: created.replyTo.content,
+            authorName: created.replyTo.author?.name || 'User',
+            authorImage: created.replyTo.author?.image || null,
+          }
+        : null,
       // Include files immediately so clients can render previews without waiting for next poll
       files: created.files?.map((f) => ({
         id: f.file.id,
@@ -227,6 +271,7 @@ export async function POST(req: Request) {
           image: f.file.uploader.image,
         },
       })) || [],
+      reactions: [],
     };
     // Broadcast to listeners in the channel room
     emitToRoom(`channel:${msg.channelId}`, 'message:new', msg);

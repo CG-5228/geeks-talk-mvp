@@ -2,7 +2,9 @@ import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { db } from '@/lib/db';
+import { publishMany } from '@/lib/liveBus';
 import type { DMConversation } from '@/types/live';
+import { requireNotBanned } from '@/lib/banEnforce';
 
 // Helper function to create conversation ID from two user IDs
 function createConversationId(userId1: string, userId2: string): string {
@@ -129,6 +131,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
+  const banCheck = await requireNotBanned(session.user.id);
+  if (!banCheck.ok) return banCheck.response;
+
   const { receiverId, content, replyToId } = await req.json();
   
   if (!receiverId || !content?.trim()) {
@@ -179,14 +184,18 @@ export async function POST(req: Request) {
             username: true,
             image: true
           }
-        }
+        },
+        replyTo: {
+          select: {
+            id: true,
+            content: true,
+            sender: { select: { id: true, name: true, image: true } },
+          },
+        },
       }
     });
 
-    // TODO: Emit socket event for real-time delivery
-    // emitToRoom(`dm:${conversationId}`, 'dm:new', dm);
-
-    return NextResponse.json({
+    const payload = {
       id: dm.id,
       conversationId: dm.conversationId,
       content: dm.content,
@@ -194,9 +203,22 @@ export async function POST(req: Request) {
       receiverId: dm.receiverId,
       read: dm.read,
       createdAt: dm.createdAt.toISOString(),
+      replyToId: dm.replyToId ?? undefined,
+      replyTo: dm.replyTo
+        ? {
+            id: dm.replyTo.id,
+            content: dm.replyTo.content,
+            sender: dm.replyTo.sender,
+          }
+        : null,
       sender: dm.sender,
-      receiver: dm.receiver
-    }, { status: 201 });
+      receiver: dm.receiver,
+    };
+
+    // Deliver to both participants' user streams.
+    publishMany([`user:${senderId}`, `user:${receiverId}`], 'dm:new', payload);
+
+    return NextResponse.json(payload, { status: 201 });
   } catch (error) {
     console.error('Error sending DM:', error);
     return NextResponse.json({ error: 'Failed to send message' }, { status: 500 });

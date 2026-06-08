@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import Image from 'next/image';
 import { useSession } from 'next-auth/react';
-import { PanelRightOpen, PanelRightClose } from 'lucide-react';
+import { PanelRightOpen, PanelRightClose, ArrowDown } from 'lucide-react';
 import type { DMConversation } from '@/types/live';
 import PresenceDot from '@/components/live/indicators/PresenceDot';
 import TypingIndicator from '@/components/live/indicators/TypingIndicator';
@@ -12,6 +12,10 @@ import ReactionDisplay from '@/components/live/reactions/ReactionDisplay';
 import MessageActionMenu from '@/components/live/message/MessageActionMenu';
 import DMReplyIndicator from '@/components/live/message/DMReplyIndicator';
 import ForwardIndicator from '@/components/live/message/ForwardIndicator';
+import MessageContent from '@/components/live/message/MessageContent';
+import LinkPreviewCard from '@/components/live/message/LinkPreviewCard';
+import { extractFirstUrl } from '@/lib/live/useLinkPreview';
+import type { ReactionSummary } from '@/types/live';
 
 interface DMMessage {
   id: string;
@@ -20,6 +24,7 @@ interface DMMessage {
   receiverId: string;
   read: boolean;
   createdAt: string;
+  editedAt?: string | null;
   replyToId?: string | null;
   replyTo?: {
     id: string;
@@ -42,6 +47,7 @@ interface DMMessage {
     username: string;
     image: string | null;
   };
+  reactions?: ReactionSummary[];
 }
 
 interface DMConversationProps {
@@ -52,6 +58,8 @@ interface DMConversationProps {
   onSendMessage?: (content: string) => void;
   onUnsendMessage?: (messageId: string) => void;
   typingUsers?: Array<{ id: string; name: string }>;
+  composerDisabled?: boolean;
+  composerBanner?: React.ReactNode;
 }
 
 const DEFAULT_AVATAR = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"%3E%3Ccircle cx="16" cy="16" r="16" fill="%23334155"/%3E%3Cpath d="M16 16a5 5 0 100-10 5 5 0 000 10zM8 24c0-4 3.6-7 8-7s8 3 8 7" fill="%23475569"/%3E%3C/svg%3E';
@@ -63,11 +71,15 @@ export default function DMConversation({
   detailsOpen,
   onSendMessage,
   onUnsendMessage,
-  typingUsers = []
+  typingUsers = [],
+  composerDisabled = false,
+  composerBanner,
 }: DMConversationProps) {
   const { data: session } = useSession();
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   const messageRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const prevLengthRef = useRef(messages.length);
   const [visibleMessages, setVisibleMessages] = useState<Set<string>>(new Set());
   const [readTimeouts, setReadTimeouts] = useState<Map<string, NodeJS.Timeout>>(new Map());
   const [showAvatarMenu, setShowAvatarMenu] = useState(false);
@@ -76,12 +88,59 @@ export default function DMConversation({
   const [selectedMessage, setSelectedMessage] = useState<DMMessage | null>(null);
   const [messageActionElement, setMessageActionElement] = useState<HTMLDivElement | null>(null);
   const [replyToMessage, setReplyToMessage] = useState<DMMessage | null>(null); // New state for reply context
+  const [flashId, setFlashId] = useState<string | null>(null);
+  const [isAtBottom, setIsAtBottom] = useState(true);
+  const [newSinceScrollAway, setNewSinceScrollAway] = useState(0);
   const avatarRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll to bottom when new messages arrive
+  const jumpToMessage = (id: string) => {
+    const el = messageRefs.current.get(id);
+    if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setFlashId(id);
+    window.setTimeout(() => setFlashId((v) => (v === id ? null : v)), 1500);
+  };
+
+  // Auto-scroll to bottom only when near the bottom; otherwise count new arrivals.
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const container = messagesContainerRef.current;
+    const bottom = messagesEndRef.current;
+    const delta = messages.length - prevLengthRef.current;
+    if (container && bottom) {
+      const nearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 120;
+      if (nearBottom) {
+        bottom.scrollIntoView({ behavior: 'smooth' });
+      } else if (delta > 0) {
+        setNewSinceScrollAway((n) => n + delta);
+      }
+    }
+    prevLengthRef.current = messages.length;
   }, [messages]);
+
+  // Reset counter when switching conversations.
+  useEffect(() => {
+    setNewSinceScrollAway(0);
+    prevLengthRef.current = messages.length;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversation?.id]);
+
+  // Track scroll position for the jump-to-latest pill.
+  useEffect(() => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+    const onScroll = () => {
+      const nearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 120;
+      setIsAtBottom(nearBottom);
+      if (nearBottom) setNewSinceScrollAway(0);
+    };
+    container.addEventListener('scroll', onScroll, { passive: true });
+    return () => container.removeEventListener('scroll', onScroll);
+  }, []);
+
+  const scrollDMToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    setNewSinceScrollAway(0);
+  };
 
   // Mark messages as read when conversation is viewed
   useEffect(() => {
@@ -278,7 +337,7 @@ export default function DMConversation({
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+      <div ref={messagesContainerRef} className="relative flex-1 overflow-y-auto px-6 py-4 space-y-4">
         {messages.map((message, index) => {
           const showDate = index === 0 ||
             new Date(message.createdAt).toDateString() !==
@@ -298,10 +357,14 @@ export default function DMConversation({
                 ref={(el) => {
                   if (el) {
                     messageRefs.current.set(message.id, el);
+                  } else {
+                    messageRefs.current.delete(message.id);
                   }
                 }}
                 data-message-id={message.id}
-                className={`flex items-start gap-3 group ${session?.user?.id === message.senderId ? 'flex-row-reverse justify-end' : ''}`}
+                className={`flex items-start gap-3 group rounded-lg -mx-2 px-2 transition-colors ${
+                  session?.user?.id === message.senderId ? 'flex-row-reverse justify-end' : ''
+                } ${flashId === message.id ? 'bg-[color:hsl(var(--primary)/0.12)]' : ''}`}
               >
                 <div
                   className="cursor-pointer hover:opacity-80 transition-opacity"
@@ -333,10 +396,20 @@ export default function DMConversation({
 
                   {/* Reply Indicator */}
                   {message.replyTo && (
-                    <DMReplyIndicator
-                      replyTo={message.replyTo}
-                      isOwnMessage={session?.user?.id === message.senderId}
-                    />
+                    <div
+                      className="cursor-pointer"
+                      role="button"
+                      aria-label={`Jump to message from ${message.replyTo.sender.name}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (message.replyTo) jumpToMessage(message.replyTo.id);
+                      }}
+                    >
+                      <DMReplyIndicator
+                        replyTo={message.replyTo}
+                        isOwnMessage={session?.user?.id === message.senderId}
+                      />
+                    </div>
                   )}
 
                   {/* Forward Indicator - detect our forwarded meta by convention */}
@@ -354,20 +427,39 @@ export default function DMConversation({
 
                   <div className={`flex flex-col gap-1 ${session?.user?.id === message.senderId ? 'items-end' : ''}`}>
                     <div
-                      className={`relative text-[rgba(220,235,255,0.9)] whitespace-pre-wrap break-words cursor-pointer transition-all duration-200 max-w-fit ${
+                      className={`relative cursor-pointer transition-all duration-200 max-w-fit ${
                         message.content.startsWith('Forwarded from ')
                           ? session?.user?.id === message.senderId
                             ? 'bg-gradient-to-br from-blue-500/25 to-blue-600/15 rounded-2xl px-4 py-3 inline-block hover:from-blue-500/30 hover:to-blue-600/20 shadow-lg border border-blue-400/20'
                             : 'bg-gradient-to-br from-gray-500/25 to-gray-600/15 rounded-2xl px-4 py-3 inline-block hover:from-gray-500/30 hover:to-gray-600/20 shadow-lg border border-gray-400/20'
                           : session?.user?.id === message.senderId
-                            ? 'bg-blue-500/20 rounded-lg px-3 py-2 inline-block hover:bg-blue-500/30'
-                            : 'bg-gray-600/20 rounded-lg px-3 py-2 inline-block hover:bg-gray-600/30'
+                            ? 'bg-blue-500/20 rounded-2xl px-3 py-2 inline-block hover:bg-blue-500/30'
+                            : 'bg-gray-600/20 rounded-2xl px-3 py-2 inline-block hover:bg-gray-600/30'
                       }`}
                       onClick={(e) => handleMessageClick(message, e.currentTarget)}
                     >
-                      {message.content.startsWith('Forwarded from ')
-                        ? message.content.split('\n').slice(1).join('\n')
-                        : message.content}
+                      <MessageContent
+                        content={
+                          message.content.startsWith('Forwarded from ')
+                            ? message.content.split('\n').slice(1).join('\n')
+                            : message.content
+                        }
+                        isOwnMessage={session?.user?.id === message.senderId}
+                      />
+                      {message.editedAt && (
+                        <span className="ml-1 text-[10px] text-[rgba(220,235,255,0.55)] italic" aria-label="Edited">
+                          (edited)
+                        </span>
+                      )}
+                      {(() => {
+                        const body = message.content.startsWith('Forwarded from ')
+                          ? message.content.split('\n').slice(1).join('\n')
+                          : message.content;
+                        const url = extractFirstUrl(body);
+                        return url ? (
+                          <LinkPreviewCard url={url} isOwnMessage={session?.user?.id === message.senderId} />
+                        ) : null;
+                      })()}
                     </div>
 
                     {/* Reactions - DM */}
@@ -375,6 +467,7 @@ export default function DMConversation({
                       messageId={message.id}
                       messageType="dm"
                       isOwnMessage={session?.user?.id === message.senderId}
+                      reactions={message.reactions}
                     />
                   </div>
                 </div>
@@ -389,22 +482,41 @@ export default function DMConversation({
         )}
 
         <div ref={messagesEndRef} />
+
+        {!isAtBottom && (
+          <button
+            type="button"
+            onClick={scrollDMToBottom}
+            className="sticky bottom-3 left-1/2 -translate-x-1/2 ml-[50%] inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 bg-[hsl(var(--primary))]/90 hover:bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] text-xs font-medium shadow-[0_0_18px_hsl(var(--primary)/0.35)] backdrop-blur"
+            aria-label={newSinceScrollAway > 0 ? `${newSinceScrollAway} new messages, jump to latest` : 'Jump to latest'}
+          >
+            <ArrowDown className="h-3.5 w-3.5" />
+            {newSinceScrollAway > 0
+              ? `${newSinceScrollAway} new message${newSinceScrollAway === 1 ? '' : 's'}`
+              : 'Jump to latest'}
+          </button>
+        )}
       </div>
 
       {/* Message Input */}
       {onSendMessage && (
-        <MessageInput
-          onSendMessage={onSendMessage}
-          replyContext={replyToMessage ? {
-            message: {
-              id: replyToMessage.id,
-              content: replyToMessage.content,
-              authorName: replyToMessage.sender.name,
-              authorImage: replyToMessage.sender.image,
-            },
-            onCancel: () => setReplyToMessage(null),
-          } : undefined}
-        />
+        <>
+          {composerBanner}
+          <MessageInput
+            onSendMessage={onSendMessage}
+            disabled={composerDisabled}
+            draftScope={conversation ? `dm:${conversation.id}` : undefined}
+            replyContext={replyToMessage ? {
+              message: {
+                id: replyToMessage.id,
+                content: replyToMessage.content,
+                authorName: replyToMessage.sender.name,
+                authorImage: replyToMessage.sender.image,
+              },
+              onCancel: () => setReplyToMessage(null),
+            } : undefined}
+          />
+        </>
       )}
 
       {/* Avatar Menu */}

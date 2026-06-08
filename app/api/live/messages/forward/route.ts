@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { db } from '@/lib/db';
+import { requireNotBanned } from '@/lib/banEnforce';
+import { canAccessRoom, getAccessibleRoom } from '@/lib/live/access';
 
 // POST /api/live/messages/forward - Forward a message to multiple destinations
 export async function POST(req: NextRequest) {
@@ -10,6 +12,9 @@ export async function POST(req: NextRequest) {
     if (!session?.user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
+
+    const banCheck = await requireNotBanned(session.user.id);
+    if (!banCheck.ok) return banCheck.response;
 
     const body = await req.json();
     const { messageId, messageType, destinations } = body;
@@ -38,12 +43,28 @@ export async function POST(req: NextRequest) {
     } else {
       originalMessage = await db.directMessage.findUnique({
         where: { id: messageId },
-        select: { id: true, content: true, senderId: true, createdAt: true, sender: { select: { name: true } } },
+        select: { id: true, content: true, senderId: true, receiverId: true, createdAt: true, sender: { select: { name: true } } },
       });
     }
 
     if (!originalMessage) {
       return NextResponse.json({ error: 'Message not found' }, { status: 404 });
+    }
+
+    // Authorize that the caller may READ the source before forwarding its
+    // content. Previously any authenticated user could forward (and thereby
+    // exfiltrate) any message or DM by id — including private channels and
+    // other people's DMs.
+    if (messageType === 'channel') {
+      const sourceRoom = await getAccessibleRoom(originalMessage.roomId);
+      if (!sourceRoom || !canAccessRoom(sourceRoom, session.user.id)) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      }
+    } else if (
+      originalMessage.senderId !== session.user.id &&
+      originalMessage.receiverId !== session.user.id
+    ) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
     const forwardedMessages = [];
@@ -74,9 +95,18 @@ export async function POST(req: NextRequest) {
           continue;
         }
 
-        // Otherwise, try as a channel room ID
-        const room = await db.room.findUnique({ where: { id: destinationId }, select: { id: true, name: true, isDM: true } });
+        // Otherwise, try as a channel room ID. The caller must be allowed to
+        // post to the destination (public channels are open; private require
+        // membership) and the channel must not be archived.
+        const room = await db.room.findUnique({
+          where: { id: destinationId },
+          select: { id: true, name: true, isDM: true, archived: true, visibility: true, ownerId: true, users: { select: { id: true } } },
+        });
         if (room && !room.isDM) {
+          if (room.archived || !canAccessRoom(room, session.user.id)) {
+            errors.push(`Not allowed to forward to ${room.name || destinationId}`);
+            continue;
+          }
           const metaAuthor = messageType === 'channel' ? (originalMessage.author?.name || 'User') : (originalMessage.sender?.name || 'User');
           const metaChannel = messageType === 'channel' ? `#${originalMessage.room?.name || 'channel'}` : 'Direct Message';
           const metaTime = originalMessage.createdAt ? new Date(originalMessage.createdAt as any).toLocaleString() : '';

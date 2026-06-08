@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { uploadToS3, getPresignedUrl } from '@/lib/s3';
+import { sniffImageType } from '@/lib/uploads';
 
 export async function GET(request: NextRequest, props: { params: Promise<{ channelId: string }> }) {
   const params = await props.params;
@@ -178,10 +179,73 @@ export async function POST(request: NextRequest, props: { params: Promise<{ chan
       'application/vnd.openxmlformats-officedocument.presentationml.presentation',
     ];
 
+    // Reject SVG outright (XSS vector), even though it is not in the allowlist.
+    if (file.type === 'image/svg+xml') {
+      return NextResponse.json({ error: 'SVG files are not allowed' }, { status: 400 });
+    }
+
     if (!allowedTypes.includes(file.type)) {
-      return NextResponse.json({ 
-        error: 'File type not supported. Allowed types: Images, PDF, Text files, Office documents' 
+      return NextResponse.json({
+        error: 'File type not supported. Allowed types: Images, PDF, Text files, Office documents'
       }, { status: 400 });
+    }
+
+    // Read bytes and validate by content signature — never trust client mime/extension.
+    const fileBuffer = Buffer.from(await file.arrayBuffer());
+
+    let contentType: string;
+    if (file.type.startsWith('image/')) {
+      // HEIC/HEIF use the ISOBMFF `ftyp` box; png/jpeg/gif/webp via the shared sniffer.
+      const sniffed = sniffImageType(fileBuffer);
+      const isHeic =
+        fileBuffer.length >= 12 &&
+        fileBuffer.slice(4, 8).toString('ascii') === 'ftyp' &&
+        ['heic', 'heix', 'hevc', 'mif1', 'msf1', 'heim', 'heis'].includes(
+          fileBuffer.slice(8, 12).toString('ascii'),
+        );
+      if (
+        sniffed !== 'image/png' &&
+        sniffed !== 'image/jpeg' &&
+        sniffed !== 'image/gif' &&
+        sniffed !== 'image/webp' &&
+        !isHeic
+      ) {
+        return NextResponse.json({ error: 'File content does not match a valid image' }, { status: 400 });
+      }
+      contentType = isHeic ? file.type : sniffed!;
+    } else if (file.type === 'application/pdf') {
+      // %PDF magic bytes
+      if (
+        !(
+          fileBuffer[0] === 0x25 &&
+          fileBuffer[1] === 0x50 &&
+          fileBuffer[2] === 0x44 &&
+          fileBuffer[3] === 0x46
+        )
+      ) {
+        return NextResponse.json({ error: 'File content does not match a valid PDF' }, { status: 400 });
+      }
+      contentType = 'application/pdf';
+    } else if (file.type === 'text/plain') {
+      // Text has no reliable signature; store as octet-stream so it downloads
+      // rather than rendering inline.
+      contentType = 'application/octet-stream';
+    } else {
+      // Office documents: OpenXML formats (docx/xlsx/pptx) are ZIP ("PK\x03\x04"),
+      // legacy formats (doc/xls/ppt) are OLE compound files (D0 CF 11 E0).
+      const isZip =
+        fileBuffer[0] === 0x50 &&
+        fileBuffer[1] === 0x4b &&
+        (fileBuffer[2] === 0x03 || fileBuffer[2] === 0x05 || fileBuffer[2] === 0x07);
+      const isOle =
+        fileBuffer[0] === 0xd0 &&
+        fileBuffer[1] === 0xcf &&
+        fileBuffer[2] === 0x11 &&
+        fileBuffer[3] === 0xe0;
+      if (!isZip && !isOle) {
+        return NextResponse.json({ error: 'File content does not match its declared type' }, { status: 400 });
+      }
+      contentType = file.type;
     }
 
     // Generate unique filename
@@ -190,15 +254,14 @@ export async function POST(request: NextRequest, props: { params: Promise<{ chan
     const s3Key = `channel-files/${channelId}/${fileName}`;
 
     // Upload to S3
-    const fileBuffer = Buffer.from(await file.arrayBuffer());
-    const uploadResult = await uploadToS3(fileBuffer, file.name, `channel-files/${channelId}`, file.type);
+    const uploadResult = await uploadToS3(fileBuffer, file.name, `channel-files/${channelId}`, contentType);
 
     // Save file record to database
     const savedFile = await db.channelFile.create({
       data: {
         channelId,
         fileName: file.name,
-        fileType: file.type,
+        fileType: contentType,
         fileSize: file.size,
         s3Key: uploadResult.key,
         uploaderId: session.user.id,

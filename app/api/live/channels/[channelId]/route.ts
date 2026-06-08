@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { db } from '@/lib/db';
+import { requireAdmin } from '@/lib/adminGate';
 
 export async function DELETE(req: Request, props: { params: Promise<{ channelId: string }> }) {
   const params = await props.params;
@@ -29,14 +30,15 @@ export async function DELETE(req: Request, props: { params: Promise<{ channelId:
       return NextResponse.json({ error: 'Channel not found' }, { status: 404 });
     }
 
-    // Check if user is the owner of the channel (for private channels)
-    if (channel.visibility === 'private' && channel.ownerId !== userId) {
-      return NextResponse.json({ error: 'Unauthorized to delete this channel' }, { status: 403 });
-    }
-
-    // For public channels, only allow deletion by the owner (if any)
-    if (channel.visibility === 'public' && channel.ownerId && channel.ownerId !== userId) {
-      return NextResponse.json({ error: 'Unauthorized to delete this channel' }, { status: 403 });
+    // Only the channel owner may delete it. Ownerless (seeded/public) channels
+    // and channels owned by someone else require admin privileges — otherwise
+    // any user could delete the default seeded channels and every message in
+    // them, since those rows have a null ownerId.
+    if (channel.ownerId !== userId) {
+      const gate = await requireAdmin();
+      if (!gate.ok) {
+        return NextResponse.json({ error: 'Unauthorized to delete this channel' }, { status: 403 });
+      }
     }
 
     // Delete the channel and all associated data

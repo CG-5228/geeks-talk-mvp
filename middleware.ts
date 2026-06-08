@@ -1,27 +1,10 @@
 import { NextResponse } from 'next/server';
-import { getToken } from 'next-auth/jwt';
-import { encode } from 'next-auth/jwt';
+import { getToken, decode } from 'next-auth/jwt';
 import type { NextRequest } from 'next/server';
 
 export async function middleware(req: NextRequest) {
   const hostname = req.headers.get('host') || '';
   const isLiveSubdomain = hostname.startsWith('live.');
-
-        // Debug logging in development
-        if (process.env.NODE_ENV === 'development') {
-
-          console.log('Cookies:', req.headers.get('cookie'));
-
-          console.log('URL Search Params:', req.nextUrl.searchParams.toString());
-
-          // Check for shared session cookie specifically
-          const cookies = req.headers.get('cookie');
-          if (cookies && cookies.includes('geeks-talk-session=')) {
-
-          } else {
-
-          }
-        }
 
   // Get token with proper cookie domain handling for cross-subdomain
   let token = await getToken({
@@ -31,80 +14,34 @@ export async function middleware(req: NextRequest) {
     secureCookie: process.env.NODE_ENV === 'production'
   });
 
-  // For live subdomain in development, check for shared session data
+  // In development the host-only session cookie isn't shared with the
+  // live.localhost subdomain, so the main domain hands over a SHORT-LIVED,
+  // SIGNED transfer token (see /api/auth/dev-transfer-token). We verify its
+  // signature here before trusting it — the previous implementation accepted an
+  // unsigned base64 session blob, which let anyone forge a session.
   if (!token && isLiveSubdomain && process.env.NODE_ENV === 'development') {
-    let sessionData = null;
-
-    // First check URL parameters for session data
     const sessionParam = req.nextUrl.searchParams.get('session');
-    if (sessionParam) {
+    let transferToken: string | null = sessionParam;
+    if (!transferToken) {
+      const cookieMatch = (req.headers.get('cookie') || '').match(/geeks-talk-session=([^;]+)/);
+      if (cookieMatch) transferToken = decodeURIComponent(cookieMatch[1]);
+    }
+    if (transferToken) {
       try {
-        sessionData = JSON.parse(Buffer.from(sessionParam, 'base64').toString());
-        if (sessionData.user && sessionData.expires && new Date(sessionData.expires) > new Date()) {
-
-        } else {
-          sessionData = null;
+        const decoded = await decode({ token: transferToken, secret: process.env.NEXTAUTH_SECRET! });
+        if (decoded && (decoded as any).id) {
+          token = {
+            id: (decoded as any).id,
+            email: decoded.email,
+            name: decoded.name,
+            image: (decoded as any).image ?? (decoded as any).picture ?? null,
+          } as any;
+          // The transfer token is itself a valid signed session JWT — reuse it
+          // directly as the subdomain's session cookie (set in the response).
+          (req as any).nextAuthToken = transferToken;
         }
       } catch (error) {
-        console.log('❌ Failed to parse URL session parameter:', error instanceof Error ? error.message : String(error));
-        sessionData = null;
-      }
-    }
-
-    // If no URL parameter, check cookies
-    if (!sessionData) {
-      const cookies = req.headers.get('cookie');
-
-      // Check for shared session cookie
-      if (cookies && cookies.includes('geeks-talk-session=')) {
-        const sessionMatch = cookies.match(/geeks-talk-session=([^;]+)/);
-        if (sessionMatch) {
-          try {
-            // Decode base64 session data
-            sessionData = JSON.parse(Buffer.from(sessionMatch[1], 'base64').toString());
-            if (sessionData.user && sessionData.expires && new Date(sessionData.expires) > new Date()) {
-
-            } else {
-              sessionData = null;
-            }
-          } catch (error) {
-            console.log('❌ Failed to parse shared session cookie:', error instanceof Error ? error.message : String(error));
-            sessionData = null;
-          }
-        }
-      }
-    }
-
-    // If we have valid session data, create a proper NextAuth token
-    if (sessionData) {
-      try {
-        // Create a proper NextAuth JWT token
-        const jwtToken = await encode({
-          token: {
-            id: sessionData.user.id,
-            email: sessionData.user.email,
-            name: sessionData.user.name,
-            image: sessionData.user.image,
-            iat: Math.floor(Date.now() / 1000),
-            exp: Math.floor(new Date(sessionData.expires).getTime() / 1000),
-            jti: `shared-${sessionData.user.id}-${Date.now()}`
-          },
-          secret: process.env.NEXTAUTH_SECRET!
-        });
-
-        // Create token object for middleware
-        token = {
-          id: sessionData.user.id,
-          email: sessionData.user.email,
-          name: sessionData.user.name,
-          image: sessionData.user.image
-        };
-
-        // We'll set the cookie in the response below
-        // Store the JWT token for later use
-        (req as any).nextAuthToken = jwtToken;
-      } catch (error) {
-        console.log('❌ Failed to create NextAuth token:', error instanceof Error ? error.message : String(error));
+        console.log('❌ Invalid dev transfer token:', error instanceof Error ? error.message : String(error));
       }
     }
   }
