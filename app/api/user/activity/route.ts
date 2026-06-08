@@ -34,6 +34,34 @@ export async function GET(req: NextRequest) {
   if (!targetId) targetId = viewerId;
   if (!targetId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
+  // Respect the target's profile visibility when viewing someone else's activity
+  // (mirrors the gating in /api/user/by-username/[username]). Without this, a
+  // private/friends-only profile's activity leaks to any viewer.
+  if (viewerId !== targetId) {
+    const target = await db.user.findUnique({
+      where: { id: targetId },
+      select: { profileVisibility: true },
+    });
+    if (target?.profileVisibility === 'private') {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+    if (target?.profileVisibility === 'friends') {
+      const mutual = viewerId
+        ? await db.follow.count({
+            where: {
+              OR: [
+                { followerId: viewerId, followeeId: targetId, status: 'mutual' },
+                { followerId: targetId, followeeId: viewerId, status: 'mutual' },
+              ],
+            },
+          })
+        : 0;
+      if (mutual === 0) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      }
+    }
+  }
+
   const cursorDate = cursor ? new Date(cursor) : new Date();
 
   const [posts, comments, reactions, likesReceived] = await Promise.all([
