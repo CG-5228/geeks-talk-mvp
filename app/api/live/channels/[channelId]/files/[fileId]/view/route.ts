@@ -41,12 +41,23 @@ export async function GET(
       return NextResponse.json({ error: 'File not found' }, { status: 404 });
     }
 
-    // Force inline disposition and correct Content-Type so images render in <img> tags
-    // rather than triggering a browser download (older uploads may be stored as
-    // application/octet-stream).
+    // Only render a narrow allowlist of safe types inline. A stored fileType of
+    // text/html or image/svg+xml served inline would execute attacker-controlled
+    // markup in the viewer's browser (stored XSS); force everything else to
+    // download as an opaque octet-stream.
+    const SAFE_INLINE = new Set([
+      'image/png',
+      'image/jpeg',
+      'image/jpg',
+      'image/gif',
+      'image/webp',
+      'application/pdf',
+    ]);
+    const storedType = (file.fileType || '').toLowerCase();
+    const inlineOk = SAFE_INLINE.has(storedType);
     const viewUrl = await getPresignedUrl(file.s3Key, 3600 * 24, {
-      inline: true,
-      contentType: file.fileType,
+      inline: inlineOk,
+      contentType: inlineOk ? file.fileType : 'application/octet-stream',
       fileName: file.fileName,
     });
 
