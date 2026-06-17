@@ -1,8 +1,8 @@
 'use client';
-import { MessageCircle, Handshake, Newspaper, LifeBuoy, CreditCard, Sparkles } from 'lucide-react';
+import { MessageCircle, Handshake, Newspaper, LifeBuoy, Sparkles } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
-export type ContactTopic = 'general' | 'partnership' | 'press' | 'support' | 'billing' | 'feedback';
+export type ContactTopic = 'general' | 'partnership' | 'press' | 'support' | 'feedback';
 
 interface TopicMeta {
   id: ContactTopic;
@@ -47,13 +47,6 @@ export const TOPICS: TopicMeta[] = [
     blurb: 'Media inquiries, interviews, and coverage.',
     icon: Newspaper,
     sla: 'Reply within 2 business days',
-  },
-  {
-    id: 'billing',
-    title: 'Billing',
-    blurb: 'Invoices, payments, and plan changes.',
-    icon: CreditCard,
-    sla: 'Reply within 1 business day',
   },
 ];
 

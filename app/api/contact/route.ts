@@ -7,7 +7,7 @@ import { sendEmailWithFallback } from '@/lib/emailResend';
 import { rateLimit } from '@/lib/rateLimit';
 import { verifyTurnstile } from '@/lib/captcha';
 
-const TOPICS = ['general', 'partnership', 'press', 'support', 'billing', 'feedback'] as const;
+const TOPICS = ['general', 'partnership', 'press', 'support', 'feedback'] as const;
 type Topic = (typeof TOPICS)[number];
 
 const TOPIC_LABELS: Record<Topic, string> = {
@@ -15,7 +15,6 @@ const TOPIC_LABELS: Record<Topic, string> = {
   partnership: 'Partnership',
   press: 'Press',
   support: 'Support',
-  billing: 'Billing',
   feedback: 'Product feedback',
 };
 
@@ -113,7 +112,6 @@ export async function POST(req: Request) {
     partnership: process.env.CONTACT_PARTNERSHIP_INBOX,
     press: process.env.CONTACT_PRESS_INBOX,
     support: process.env.CONTACT_SUPPORT_INBOX,
-    billing: process.env.CONTACT_BILLING_INBOX,
     feedback: process.env.CONTACT_FEEDBACK_INBOX,
   };
   const toAddr =
