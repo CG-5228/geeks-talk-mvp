@@ -75,6 +75,8 @@ export default function ContactPage() {
   const [contactState, setContactState] = useState<FormState>('idle');
   const [contactErrors, setContactErrors] = useState<Partial<Record<keyof ContactForm, string>>>({});
   const [contactServerError, setContactServerError] = useState('');
+  const [guestEmail, setGuestEmail] = useState('');
+  const [guestEmailError, setGuestEmailError] = useState('');
 
   const [bug, setBug] = useState<BugForm>(emptyBug);
   const [bugState, setBugState] = useState<FormState>('idle');
@@ -90,7 +92,22 @@ export default function ContactPage() {
     if (contact.message.trim().length < 10) errs.message = 'A little more detail helps (10+ chars).';
     if (contact.message.trim().length > 5000) errs.message = 'Message is too long (max 5000).';
     setContactErrors(errs);
-    return Object.keys(errs).length === 0;
+
+    // Guests must give us an email to reply to.
+    let emailOk = true;
+    if (!session?.user) {
+      const e = guestEmail.trim();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) {
+        setGuestEmailError('Enter a valid email so we can reply.');
+        emailOk = false;
+      } else {
+        setGuestEmailError('');
+      }
+    } else {
+      setGuestEmailError('');
+    }
+
+    return Object.keys(errs).length === 0 && emailOk;
   }
 
   function validateBug(): boolean {
@@ -117,6 +134,7 @@ export default function ContactPage() {
           subject: contact.subject.trim(),
           message: contact.message.trim(),
           attachments: contact.attachments.map((a) => a.s3Url),
+          ...(session?.user ? {} : { email: guestEmail.trim() }),
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -173,39 +191,6 @@ export default function ContactPage() {
     return (
       <div className="min-h-[60vh] flex items-center justify-center text-[rgba(236,245,255,0.9)]">
         <Loader2 className="w-5 h-5 animate-spin" />
-      </div>
-    );
-  }
-
-  if (!session?.user) {
-    return (
-      <div className="relative min-h-screen">
-        <div className="fixed inset-0 z-0 bg-[#0a0c10]" aria-hidden />
-        <ParticlesBackgroundClient density={20} zIndex={1} />
-        <main className="relative z-[2] max-w-3xl mx-auto px-4 py-20">
-          <div className="rounded-3xl border border-white/[0.08] bg-[color:var(--card-bg)]/60 backdrop-blur-xl p-8 text-center">
-            <div className="inline-flex items-center gap-2 text-[11px] uppercase tracking-[0.2em] font-semibold text-[rgba(220,235,255,0.6)]">
-              <MessageSquare className="w-3.5 h-3.5" /> Contact
-            </div>
-            <h1 className="mt-4 text-3xl font-bold text-[rgba(236,245,255,0.98)] tracking-tight">Get in touch</h1>
-            <p className="mt-3 text-[rgba(220,235,255,0.78)]">
-              Please{' '}
-              <Link className="text-[color:hsl(var(--primary))] underline underline-offset-4" href="/signin">
-                sign in
-              </Link>{' '}
-              to send us a message. We reply faster when you’re signed in.
-            </p>
-            <div className="mt-6 text-sm text-[rgba(220,235,255,0.65)]">
-              Or email us:{' '}
-              <a
-                className="text-[color:hsl(var(--primary))] hover:underline"
-                href="mailto:Chris.G@geekstalk.org"
-              >
-                Chris.G@geekstalk.org
-              </a>
-            </div>
-          </div>
-        </main>
       </div>
     );
   }
@@ -324,6 +309,27 @@ export default function ContactPage() {
                         className="space-y-5"
                         noValidate
                       >
+                        {!session?.user && (
+                          <Field
+                            id="guest-email"
+                            label="Your email"
+                            hint="So we can reply to you."
+                            error={guestEmailError}
+                          >
+                            <input
+                              id="guest-email"
+                              type="email"
+                              value={guestEmail}
+                              onChange={(e) => setGuestEmail(e.target.value)}
+                              onBlur={() => validateContact()}
+                              placeholder="you@example.com"
+                              className={inputClass(Boolean(guestEmailError))}
+                              autoComplete="email"
+                              required
+                            />
+                          </Field>
+                        )}
+
                         <Field
                           id="subject"
                           label="Subject"
@@ -387,7 +393,9 @@ export default function ContactPage() {
                         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-2">
                           <p className="text-xs text-[rgba(220,235,255,0.55)]">
                             Sending as{' '}
-                            <span className="text-[rgba(236,245,255,0.9)] font-medium">{session.user.email}</span>
+                            <span className="text-[rgba(236,245,255,0.9)] font-medium">
+                              {session?.user ? session.user.email : 'guest'}
+                            </span>
                           </p>
                           <button
                             type="submit"
@@ -409,6 +417,18 @@ export default function ContactPage() {
                     )}
                   </div>
                 </>
+              ) : !session?.user ? (
+                <div className="rounded-3xl border border-white/[0.06] bg-[color:var(--card-bg)]/60 backdrop-blur-xl p-8 text-center">
+                  <Bug className="w-6 h-6 text-[color:hsl(var(--primary))] mx-auto" />
+                  <h3 className="mt-4 text-lg font-semibold text-[rgba(236,245,255,0.95)]">Sign in to report a bug</h3>
+                  <p className="mt-2 text-sm text-[rgba(220,235,255,0.7)]">
+                    Bug reports need an account so we can follow up.{' '}
+                    <Link href="/signin" className="text-[color:hsl(var(--primary))] underline underline-offset-4">
+                      Sign in
+                    </Link>{' '}
+                    — or use “Send a message” above as a guest.
+                  </p>
+                </div>
               ) : (
                 <div className="rounded-3xl border border-white/[0.06] bg-[color:var(--card-bg)]/60 backdrop-blur-xl p-6 sm:p-8">
                   {bugState === 'success' ? (
@@ -557,7 +577,7 @@ export default function ContactPage() {
                       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-2">
                         <p className="text-xs text-[rgba(220,235,255,0.55)]">
                           Reporting as{' '}
-                          <span className="text-[rgba(236,245,255,0.9)] font-medium">{session.user.email}</span>
+                          <span className="text-[rgba(236,245,255,0.9)] font-medium">{session?.user?.email}</span>
                         </p>
                         <button
                           type="submit"

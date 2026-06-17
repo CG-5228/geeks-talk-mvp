@@ -24,6 +24,7 @@ const ContactSchema = z.object({
   message: z.string().trim().min(10, 'Message must be at least 10 characters').max(5000, 'Message too long'),
   attachments: z.array(z.string().min(1).max(512)).max(5).optional().default([]),
   captchaToken: z.string().optional(),
+  email: z.string().trim().email('A valid email is required').optional(),
 });
 
 function escapeHtml(input: string): string {
@@ -37,12 +38,10 @@ function escapeHtml(input: string): string {
 
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const userId = session?.user?.id ?? null;
 
   const ip = (req.headers.get('x-forwarded-for') || '').split(',')[0] || 'unknown';
-  const key = `contact:${session.user.id}:${ip}`;
+  const key = userId ? `contact:${userId}:${ip}` : `contact-guest:${ip}`;
   const rl = await rateLimit(key, 5, 60_000);
   if (!rl.allowed) {
     return NextResponse.json({ error: 'Too many requests. Please wait a moment before sending again.' }, { status: 429 });
@@ -64,23 +63,35 @@ export async function POST(req: Request) {
     );
   }
 
-  const { topic, subject, message, attachments, captchaToken } = parsed.data;
+  const { topic, subject, message, attachments, captchaToken, email } = parsed.data;
+
+  // Guests must provide an email so the team can reply.
+  if (!userId && !email) {
+    return NextResponse.json({ error: 'Please enter your email so we can reply.', field: 'email' }, { status: 400 });
+  }
+  const senderEmail = userId ? (session?.user?.email || 'unknown') : (email as string);
 
   const captchaOk = await verifyTurnstile(captchaToken, ip);
   if (!captchaOk) {
     return NextResponse.json({ error: 'Captcha verification failed. Please try again.' }, { status: 403 });
   }
 
-  const saved = await db.contactMessage.create({
-    data: {
-      userId: session.user.id,
-      subject,
-      message,
-      topic,
-      attachments,
-      status: 'new',
-    },
-  });
+  // ContactMessage requires a userId, so guest messages are delivered by email
+  // only (the team still receives them); signed-in messages are also persisted.
+  let savedId: string | null = null;
+  if (userId) {
+    const saved = await db.contactMessage.create({
+      data: {
+        userId,
+        subject,
+        message,
+        topic,
+        attachments,
+        status: 'new',
+      },
+    });
+    savedId = saved.id;
+  }
 
   try {
     const { updateDailyStats } = await import('@/lib/analytics');
@@ -97,13 +108,13 @@ export async function POST(req: Request) {
 
   const html = `
     <h2>New ${escapeHtml(TOPIC_LABELS[topic])} Message</h2>
-    <p><strong>User:</strong> ${escapeHtml(session.user.email || 'unknown')}</p>
+    <p><strong>From:</strong> ${escapeHtml(senderEmail)}${userId ? '' : ' (guest)'}</p>
     <p><strong>Topic:</strong> ${escapeHtml(TOPIC_LABELS[topic])}</p>
     <p><strong>Subject:</strong> ${escapeHtml(subject)}</p>
     <p><strong>Message:</strong></p>
     <pre style="white-space:pre-wrap;font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#f6f8fa;border-radius:8px;padding:12px">${escapeHtml(message)}</pre>
     ${attachmentsHtml}
-    <p style="color:#6b7280;font-size:12px">Message ID: ${saved.id}</p>
+    <p style="color:#6b7280;font-size:12px">${savedId ? `Message ID: ${savedId}` : 'Guest submission (not stored)'}</p>
   `;
 
   const fromAddr = process.env.EMAIL_NO_REPLY || 'no-reply@geekstalk.org';
@@ -128,12 +139,12 @@ export async function POST(req: Request) {
     return NextResponse.json(
       {
         ok: false,
-        id: saved.id,
+        id: savedId,
         error: 'Message saved, but email delivery failed. Our team will still see it.',
       },
       { status: 202 },
     );
   }
 
-  return NextResponse.json({ ok: true, id: saved.id });
+  return NextResponse.json({ ok: true, id: savedId });
 }
