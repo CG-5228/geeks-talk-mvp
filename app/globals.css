@@ -24,7 +24,7 @@
   --info-foreground: 199 40% 10%;
   --accent: 265 85% 65%;
   --accent-foreground: 265 20% 98%;
-  --bg-grad-from: 210 60% 6%;
+  --bg-grad-from: 210 22% 5%;
   --bg-grad-to: 220 30% 3%;
   --nav-bg: 220 25% 6%;
   --nav-border: 195 90% 70%;
@@ -105,7 +105,7 @@ body::before {
   z-index: -1;
   pointer-events: none;
   background:
-    radial-gradient(1200px 800px at 50% -200px, hsl(var(--bg-grad-from) / 0.45), transparent 60%),
+    radial-gradient(1200px 800px at 50% -200px, hsl(var(--bg-grad-from) / 0.18), transparent 60%),
     linear-gradient(180deg, hsl(var(--bg-grad-from)), hsl(var(--bg-grad-to)));
   background-attachment: fixed;
 }
@@ -113,7 +113,7 @@ body::before {
 [data-theme="black"] {
   --bg: 220 20% 4%;
   --fg: 210 24% 96%;
-  --bg-grad-from: 210 60% 6%;
+  --bg-grad-from: 210 22% 5%;
   --bg-grad-to: 220 30% 3%;
   --nav-bg: 220 25% 6%;
   --nav-border: 195 90% 70%;
