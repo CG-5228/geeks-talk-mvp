@@ -1,7 +1,20 @@
 import React from 'react';
 import type { Metadata } from 'next';
+import { Inter, JetBrains_Mono } from 'next/font/google';
 import './globals.css';
 import Providers from './providers';
+
+const inter = Inter({
+  subsets: ['latin'],
+  variable: '--font-sans',
+  display: 'swap',
+});
+
+const jetbrainsMono = JetBrains_Mono({
+  subsets: ['latin'],
+  variable: '--font-mono',
+  display: 'swap',
+});
 import { ThemeProvider } from 'next-themes';
 import ThemeColor from '@/components/ThemeColor';
 import { NotificationProvider } from '@/components/ui/NotificationSystem';
@@ -47,7 +60,7 @@ export default function RootLayout({
   };
 
     return (
-        <html lang="en" className="h-full" suppressHydrationWarning>
+        <html lang="en" className={`h-full ${inter.variable} ${jetbrainsMono.variable}`} suppressHydrationWarning>
             <head>
                 {/* theme-color is updated dynamically by ThemeColor */}
                 <meta name="theme-color" content="#0d0f10" />

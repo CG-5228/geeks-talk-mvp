@@ -22,14 +22,6 @@ export async function generateLiveKitToken({
   const apiKey = process.env.LIVEKIT_API_KEY;
   const apiSecret = process.env.LIVEKIT_SECRET;
 
-  console.log('🔍 LiveKit token generation debug:', {
-    apiKey: apiKey ? `${apiKey.substring(0, 8)}...` : 'undefined',
-    apiSecret: apiSecret ? `${apiSecret.substring(0, 8)}...` : 'undefined',
-    roomName,
-    participantIdentity,
-    participantName
-  });
-
   if (!apiKey || !apiSecret) {
     // For development, return a mock token
     console.error('❌ LiveKit API key and secret not configured!');

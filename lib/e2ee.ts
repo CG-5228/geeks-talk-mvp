@@ -106,6 +106,13 @@ export async function deriveSharedSecret(
   }
 }
 
+// Fixed, non-zero domain-separation salt for HKDF-Extract (replaces the previous
+// all-zero salt). It is a constant shared by both peers, so derived keys still
+// match; the versioned label binds derived keys to this protocol/version. NOTE:
+// changing this label rotates every key, so both call peers must run the same
+// version to agree.
+const HKDF_SALT = new TextEncoder().encode('geekstalk-e2ee-v1-hkdf-salt-0001');
+
 /**
  * HKDF-SHA256 key derivation with room name as info
  */
@@ -137,9 +144,10 @@ export async function hkdf(
       ['deriveBits']
     );
 
-    // Derive key using HKDF with room name as info
+    // Derive key using HKDF: room name + key index bind the Expand step (info),
+    // and a fixed non-zero domain-separation salt binds the Extract step.
     const info = new TextEncoder().encode(`${roomName}-${keyIndex}`);
-    const salt = new Uint8Array(32); // Zero salt for simplicity
+    const salt = HKDF_SALT;
     
     const derivedKey = await crypto.subtle.deriveBits(
       {
@@ -312,8 +320,7 @@ export function generateNonce(): Uint8Array {
  */
 export async function encryptData(
   data: Uint8Array,
-  key: Uint8Array,
-  nonce?: Uint8Array
+  key: Uint8Array
 ): Promise<{ encrypted: Uint8Array; nonce: Uint8Array; tag: Uint8Array }> {
   try {
     // Validate inputs
@@ -325,11 +332,10 @@ export async function encryptData(
       throw new Error('Invalid key size');
     }
 
-    if (nonce && nonce.length !== 12) {
-      throw new Error('Invalid nonce size');
-    }
-
-    const iv = nonce || generateNonce();
+    // Always generate a fresh random nonce internally — never accept a
+    // caller-supplied IV, which could be reused under the same key (catastrophic
+    // for AES-GCM confidentiality and integrity).
+    const iv = generateNonce();
     
     // Import key
     const cryptoKey = await crypto.subtle.importKey(

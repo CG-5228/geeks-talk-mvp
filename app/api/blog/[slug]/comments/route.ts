@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { db } from '@/lib/db';
+import { rateLimit } from '@/lib/rateLimit';
 
 // GET /api/blog/[slug]/comments - Fetch comments for a blog post
 export async function GET(req: NextRequest, props: { params: Promise<{ slug: string }> }) {
@@ -48,6 +49,11 @@ export async function POST(req: NextRequest, props: { params: Promise<{ slug: st
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) {
     return NextResponse.json({ error: 'Please sign in to comment' }, { status: 401 });
+  }
+
+  const rl = await rateLimit(`blog-comment:${session.user.id}`, 5, 60_000);
+  if (!rl.allowed) {
+    return NextResponse.json({ error: 'Too many requests' }, { status: 429 });
   }
 
   try {

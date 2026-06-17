@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
-import { isAdmin, isSuperAdmin } from '@/lib/admin';
+import { isAdmin, isSuperAdmin, getAdminRole } from '@/lib/admin';
 import { generateSessionAdminHash } from '@/lib/adminSession';
 import { db } from '@/lib/db';
 
@@ -22,15 +22,17 @@ export async function GET() {
     select: { email: true }
   });
   const isSuper = await isSuperAdmin(user?.email || '');
+  const role = await getAdminRole(session.user.id);
 
   // Generate a new session-based admin hash each time
   // This hash is temporary and expires after 1 hour
   const adminHash = generateSessionAdminHash(session.user.id);
 
-  return NextResponse.json({ 
+  return NextResponse.json({
     isAdmin: true,
     isSuperAdmin: isSuper,
+    role,
     userId: session.user.id,
-    adminHash
+    adminHash,
   });
 }

@@ -14,11 +14,16 @@ export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => ({}));
     const status = body.status || 'online';
+    const userId = (session.user as any).id;
 
-    console.log('💓 Heartbeat received:', { userId: (session.user as any).id, status, timestamp: new Date().toISOString() });
+    // Verify the session userId still exists — prevents P2025 from spamming logs
+    // when a client has a stale JWT cookie pointing at a deleted user.
+    const exists = await db.user.findUnique({ where: { id: userId }, select: { id: true } });
+    if (!exists) {
+      return NextResponse.json({ error: 'Stale session' }, { status: 401 });
+    }
 
-    // Update user's online status and last seen
-    await updateOnlineStatus((session.user as any).id, status);
+    await updateOnlineStatus(userId, status);
 
     return NextResponse.json({
       success: true,
@@ -48,7 +53,10 @@ export async function GET(req: Request) {
       success: true,
       timestamp: new Date().toISOString()
     });
-  } catch (error) {
+  } catch (error: any) {
+    if (error?.code === 'P2025') {
+      return NextResponse.json({ error: 'Stale session' }, { status: 401 });
+    }
     console.error('Failed to update last seen:', error);
     return NextResponse.json({ error: 'Failed to update last seen' }, { status: 500 });
   }

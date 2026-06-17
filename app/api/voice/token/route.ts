@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { generateLiveKitToken } from '@/lib/livekit';
+import { db } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,6 +18,17 @@ export async function GET(request: NextRequest) {
 
     if (!groupId) {
       return NextResponse.json({ error: 'Group ID is required' }, { status: 400 });
+    }
+
+    // Only group members may mint a token for that group's room. Without this,
+    // any authenticated user could pass groupId=<any> and join/eavesdrop on any
+    // voice group's LiveKit room.
+    const membership = await db.voiceGroupMember.findFirst({
+      where: { groupId, userId: session.user.id },
+      select: { id: true },
+    });
+    if (!membership) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
     const livekitUrl = process.env.LIVEKIT_URL;

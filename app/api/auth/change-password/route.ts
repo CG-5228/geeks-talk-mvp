@@ -3,7 +3,8 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { hashPassword, verifyPassword } from '@/lib/password';
-import { verifyAndConsumeEmailCode } from '@/lib/verification';
+import { verifyEmailCode } from '@/lib/emailCode';
+import { rateLimit } from '@/lib/rateLimit';
 import { z } from 'zod';
 
 const Schema = z.union([
@@ -32,11 +33,13 @@ export async function POST(req: Request) {
     if (parsed.data.email.toLowerCase() !== (user.email || '').toLowerCase()) {
       return NextResponse.json({ error: 'Email mismatch' }, { status: 400 });
     }
-    const v = await verifyAndConsumeEmailCode(parsed.data.email, 'change', parsed.data.code);
-    if (!v.ok) return NextResponse.json({ error: 'Invalid or expired code' }, { status: 400 });
+    const v = await verifyEmailCode(parsed.data.email, parsed.data.code, 'change');
+    if (!v.valid) return NextResponse.json({ error: 'Invalid or expired code' }, { status: 400 });
     const hashed = await hashPassword(parsed.data.newPassword);
     await db.user.update({ where: { id: user.id }, data: { hashedPassword: hashed } });
   } else {
+    const rl = await rateLimit(`change-pw:${session.user.id}`, 5, 60_000);
+    if (!rl.allowed) return NextResponse.json({ error: 'Too many requests' }, { status: 429 });
     const { currentPassword, newPassword } = parsed.data as any;
     if (!user?.hashedPassword) return NextResponse.json({ error: 'Password login not enabled for this account' }, { status: 400 });
     const ok = await verifyPassword(currentPassword, user.hashedPassword);

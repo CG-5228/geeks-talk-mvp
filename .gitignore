@@ -130,3 +130,20 @@ pids/
 
 # Turbo
 .turbo
+
+# Claude
+.claude
+
+# Cursor
+.cursor# Claude
+.claude
+
+# Cursor
+.cursor# Claude
+.claude
+
+# Cursor
+.cursor
+
+.claude/settings.local.json
+.claude/scheduled_tasks.lock

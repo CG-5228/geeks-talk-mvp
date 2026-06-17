@@ -1,6 +1,7 @@
 "use client";
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Download, File, Image, FileText, Music, Video, Archive, FileSpreadsheet, Presentation } from 'lucide-react';
+import ImageLightbox, { LightboxImage } from './ImageLightbox';
 
 interface FileAttachment {
   id: string;
@@ -22,8 +23,15 @@ interface FilePreviewProps {
 
 export default function FilePreview({ files, isOwnMessage = false }: FilePreviewProps) {
   const [imageErrors, setImageErrors] = useState<Set<string>>(new Set());
-  
-  console.log('🔍 FilePreview rendered with files:', files);
+  const [lightboxId, setLightboxId] = useState<string | null>(null);
+
+  const lightboxImages: LightboxImage[] = useMemo(
+    () =>
+      files
+        .filter((f) => f.type.startsWith('image/') && !imageErrors.has(f.id))
+        .map((f) => ({ id: f.id, url: f.url, name: f.name })),
+    [files, imageErrors]
+  );
 
   const getFileIcon = (fileType: string) => {
     if (fileType.startsWith('image/')) return <Image className="w-5 h-5" />;
@@ -85,24 +93,30 @@ export default function FilePreview({ files, isOwnMessage = false }: FilePreview
         return (
           <div key={file.id} className="relative group">
             {isImage && !hasImageError ? (
-              // Image Preview - Show actual image like Instagram/WhatsApp
-              <div className="relative overflow-hidden rounded-lg">
+              // Inline image preview; click opens lightbox.
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setLightboxId(file.id);
+                }}
+                className="relative overflow-hidden rounded-lg block"
+                aria-label={`Open ${file.name}`}
+              >
                 <img
                   src={file.url}
                   alt={file.name}
-                  className="max-w-xs max-h-64 object-cover rounded-lg cursor-pointer hover:opacity-90 transition-opacity"
+                  className="max-w-xs max-h-64 object-cover rounded-lg hover:opacity-90 transition-opacity"
                   onError={() => handleImageError(file.id)}
-                  onClick={() => window.open(file.url, '_blank')}
+                  loading="lazy"
                 />
-                <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg flex items-center justify-center">
-                  <Download className="w-6 h-6 text-white" />
-                </div>
-                <div className="absolute bottom-2 left-2 right-2">
-                  <div className="bg-black/70 text-white text-xs px-2 py-1 rounded backdrop-blur-sm">
+                <div className="pointer-events-none absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors rounded-lg" />
+                <div className="absolute bottom-2 left-2 right-2 pointer-events-none">
+                  <div className="bg-black/70 text-white text-xs px-2 py-1 rounded backdrop-blur-sm inline-block">
                     {file.name}
                   </div>
                 </div>
-              </div>
+              </button>
             ) : (
               // File Bubble
               <div 
@@ -139,6 +153,11 @@ export default function FilePreview({ files, isOwnMessage = false }: FilePreview
           </div>
         );
       })}
+      <ImageLightbox
+        images={lightboxImages}
+        openId={lightboxId}
+        onClose={() => setLightboxId(null)}
+      />
     </div>
   );
 }

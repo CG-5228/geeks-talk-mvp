@@ -8,61 +8,37 @@ export default function TransferSessionPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [transferring, setTransferring] = useState(false);
+  const [, setTransferring] = useState(false);
 
   useEffect(() => {
     if (status === 'loading') return;
 
-    const redirectUrl = searchParams.get('redirect');
-
-    if (session) {
-      // We have a session, transfer it to the live subdomain
-      setTransferring(true);
-
-      const sessionData = {
-        user: session.user,
-        expires: session.expires,
-        timestamp: Date.now()
-      };
-
-      // Store session data for transfer
-      sessionStorage.setItem('geeks-talk-session', JSON.stringify(sessionData));
-      localStorage.setItem('geeks-talk-session-transfer', JSON.stringify(sessionData));
-
-      // Set cookies
-      const cookieValue = btoa(JSON.stringify(sessionData));
-      document.cookie = `geeks-talk-session=${cookieValue}; path=/; max-age=3600; SameSite=Lax`;
-      document.cookie = `geeks-talk-session=${cookieValue}; path=/; max-age=3600; SameSite=Lax; domain=localhost`;
-      document.cookie = `geeks-talk-session=${cookieValue}; path=/; max-age=3600; SameSite=Lax; domain=.localhost`;
-
-      // Redirect to live subdomain with session data in URL
-      if (redirectUrl) {
-        const sessionParam = btoa(JSON.stringify(sessionData));
-        const liveUrl = redirectUrl.includes('?')
-          ? `${redirectUrl}&session=${sessionParam}`
-          : `${redirectUrl}?session=${sessionParam}`;
-
-        setTimeout(() => {
-          window.location.href = liveUrl;
-        }, 1000);
-      } else {
-        // Default redirect to live subdomain
-        const sessionParam = btoa(JSON.stringify(sessionData));
-        const liveUrl = `http://live.localhost:3000/text?session=${sessionParam}`;
-
-        console.log('🔗 Redirecting to live subdomain (default):', liveUrl);
-        setTimeout(() => {
-          window.location.href = liveUrl;
-        }, 1000);
-      }
-      return;
-    }
-
     if (!session) {
-      // No session, redirect to signin
       router.replace('/signin');
       return;
     }
+
+    setTransferring(true);
+    const redirectUrl = searchParams.get('redirect') || 'http://live.localhost:3000/text';
+
+    // Fetch a short-lived SIGNED token to carry to the live subdomain. In
+    // production this endpoint 404s (the shared `.geekstalk.org` cookie already
+    // authenticates the subdomain), so we just redirect without a token.
+    fetch('/api/auth/dev-transfer-token')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        const token: string = data?.token || '';
+        const sep = redirectUrl.includes('?') ? '&' : '?';
+        const liveUrl = token
+          ? `${redirectUrl}${sep}session=${encodeURIComponent(token)}`
+          : redirectUrl;
+        setTimeout(() => {
+          window.location.href = liveUrl;
+        }, 500);
+      })
+      .catch(() => {
+        window.location.href = redirectUrl;
+      });
   }, [session, status, searchParams, router]);
 
   return (

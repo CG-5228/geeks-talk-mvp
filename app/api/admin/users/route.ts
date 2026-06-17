@@ -94,7 +94,10 @@ export async function GET(req: Request) {
     );
 
     // Debug logging for online status determination
-    if (user.email === 'g15222152017@gmail.com' || user.email === 'u6030799340@gmail.com') {
+    if (
+      process.env.NODE_ENV === 'development' &&
+      (user.email === 'g15222152017@gmail.com' || user.email === 'u6030799340@gmail.com')
+    ) {
       console.log('🔍 Admin API - User status check:', {
         name: user.name,
         email: user.email,

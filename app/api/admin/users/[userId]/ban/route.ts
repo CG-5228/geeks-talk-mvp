@@ -5,6 +5,7 @@ import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { renderBanEmail } from '@/lib/emailTemplates';
 import { sendEmailWithFallback } from '@/lib/emailResend';
+import { logAdminAction } from '@/lib/adminAudit';
 
 export async function POST(req: Request, props: { params: Promise<{ userId: string }> }) {
   const params = await props.params;
@@ -18,9 +19,14 @@ export async function POST(req: Request, props: { params: Promise<{ userId: stri
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
-  const { reason, duration } = await req.json();
-  if (!reason || !duration) {
+  const { reason, duration: rawDuration } = await req.json();
+  if (!reason || rawDuration === undefined || rawDuration === null) {
     return NextResponse.json({ error: 'Reason and duration are required' }, { status: 400 });
+  }
+
+  const duration = Number(rawDuration);
+  if (!Number.isFinite(duration) || duration <= 0 || duration > 365) {
+    return NextResponse.json({ error: 'Duration must be a number between 1 and 365 days' }, { status: 400 });
   }
 
   const userId = params.userId;
@@ -82,7 +88,17 @@ export async function POST(req: Request, props: { params: Promise<{ userId: stri
     to: user.email
   });
 
-  return NextResponse.json({ 
+  await logAdminAction({
+    adminId: session.user.id,
+    action: 'user.ban',
+    targetType: 'user',
+    targetId: userId,
+    summary: `${duration}d — ${reason}`,
+    metadata: { banId: ban.id, duration, expiresAt: expiresAt.toISOString() },
+    req,
+  });
+
+  return NextResponse.json({
     message: 'User banned successfully',
     ban: {
       id: ban.id,
@@ -120,6 +136,16 @@ export async function DELETE(req: Request, props: { params: Promise<{ userId: st
         title: 'Account Ban Removed',
         message: 'Your account suspension has been lifted. Please follow community guidelines.',
       }
+    });
+
+    await logAdminAction({
+      adminId: session.user.id,
+      action: 'user.unban',
+      targetType: 'user',
+      targetId: params.userId,
+      summary: `Lifted ban ${latestBan.id}`,
+      metadata: { banId: latestBan.id, originalReason: latestBan.reason },
+      req,
     });
 
     return NextResponse.json({ success: true });

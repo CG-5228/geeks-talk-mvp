@@ -9,7 +9,22 @@
 :root {
   --bg: 220 20% 4%;
   --fg: 210 24% 96%;
-  --bg-grad-from: 210 60% 6%;
+  --background: 220 20% 4%;
+  --foreground: 210 24% 96%;
+  --muted: 215 20% 12%;
+  --muted-foreground: 215 14% 55%;
+  /* Semantic status tokens */
+  --success: 142 70% 45%;
+  --success-foreground: 142 30% 98%;
+  --warning: 38 92% 55%;
+  --warning-foreground: 38 40% 10%;
+  --error: 0 72% 58%;
+  --error-foreground: 0 0% 100%;
+  --info: 199 89% 55%;
+  --info-foreground: 199 40% 10%;
+  --accent: 265 85% 65%;
+  --accent-foreground: 265 20% 98%;
+  --bg-grad-from: 210 22% 5%;
   --bg-grad-to: 220 30% 3%;
   --nav-bg: 220 25% 6%;
   --nav-border: 195 90% 70%;
@@ -53,6 +68,10 @@ html {
   color-scheme: dark;
 }
 
+html[data-theme="synthwave"] {
+  color-scheme: dark;
+}
+
 html, body {
   @apply h-full;
   overscroll-behavior-y: contain;
@@ -64,6 +83,18 @@ body {
   @apply antialiased;
   min-height: 100vh;
   background: transparent;
+  font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 /* Base canvas gradient under particles */
@@ -74,7 +105,7 @@ body::before {
   z-index: -1;
   pointer-events: none;
   background:
-    radial-gradient(1200px 800px at 50% -200px, hsl(var(--bg-grad-from) / 0.45), transparent 60%),
+    radial-gradient(1200px 800px at 50% -200px, hsl(var(--bg-grad-from) / 0.18), transparent 60%),
     linear-gradient(180deg, hsl(var(--bg-grad-from)), hsl(var(--bg-grad-to)));
   background-attachment: fixed;
 }
@@ -82,7 +113,7 @@ body::before {
 [data-theme="black"] {
   --bg: 220 20% 4%;
   --fg: 210 24% 96%;
-  --bg-grad-from: 210 60% 6%;
+  --bg-grad-from: 210 22% 5%;
   --bg-grad-to: 220 30% 3%;
   --nav-bg: 220 25% 6%;
   --nav-border: 195 90% 70%;
@@ -109,6 +140,176 @@ body::before {
   --cord-end: hsl(210 14% 65%);
   --bulb-stroke: hsl(210 10% 72%);
   --bulb-fill: hsla(200 80% 70% / 0.08);
+}
+
+[data-theme="gt-original"] {
+  --bg: 220 22% 5%;
+  --fg: 210 24% 96%;
+  --background: 220 22% 5%;
+  --foreground: 210 24% 96%;
+  --muted: 215 22% 13%;
+  --muted-foreground: 210 16% 62%;
+  --bg-grad-from: 205 70% 8%;
+  --bg-grad-to: 225 35% 4%;
+  --nav-bg: 220 26% 7%;
+  --nav-border: 195 90% 70%;
+  --card-bg: 220 26% 9%;
+  --card-ring: 190 100% 60%;
+  --card-glow: 190 100% 58%;
+  --input-border: 200 30% 38%;
+  --input-focus: 190 100% 60%;
+  --primary: 195 100% 55%;
+  --primary-foreground: 220 15% 10%;
+  --particle-color: #00d4ff;
+  --grid-opacity: 0.10;
+  --overscroll: 215 22% 10%;
+  --surface-0: hsl(215 24% 10%);
+  --surface-1: hsl(215 24% 12%);
+  --surface-2: hsl(215 24% 14%);
+  --divider: hsl(215 18% 24% / 0.24);
+  --success: 142 70% 48%;
+  --success-foreground: 0 0% 100%;
+  --warning: 38 92% 58%;
+  --warning-foreground: 38 40% 10%;
+  --error: 0 75% 62%;
+  --error-foreground: 0 0% 100%;
+  --info: 195 100% 60%;
+  --info-foreground: 220 15% 10%;
+  --accent: 340 85% 62%;
+  --accent-foreground: 0 0% 100%;
+  --cord: hsl(210 14% 52%);
+  --cord-end: hsl(210 14% 68%);
+  --bulb-stroke: hsl(210 10% 75%);
+  --bulb-fill: hsla(200 80% 72% / 0.10);
+}
+
+[data-theme="synthwave"] {
+  --bg: 260 40% 8%;
+  --fg: 280 100% 95%;
+  --background: 260 40% 8%;
+  --foreground: 280 100% 95%;
+  --muted: 265 30% 16%;
+  --muted-foreground: 275 30% 72%;
+  --bg-grad-from: 275 45% 14%;
+  --bg-grad-to: 250 50% 6%;
+  --nav-bg: 260 35% 10%;
+  --nav-border: 321 90% 65%;
+  --card-bg: 260 35% 12%;
+  --card-ring: 321 85% 65%;
+  --card-glow: 280 95% 60%;
+  --input-border: 280 25% 35%;
+  --input-focus: 321 90% 70%;
+  --primary: 321 85% 65%;
+  --primary-foreground: 0 0% 100%;
+  --particle-color: #ff6ac1;
+  --grid-opacity: 0.12;
+  --overscroll: 260 35% 12%;
+  --surface-0: hsl(265 34% 10%);
+  --surface-1: hsl(265 34% 13%);
+  --surface-2: hsl(265 34% 16%);
+  --divider: hsl(280 25% 28% / 0.28);
+  --success: 170 80% 55%;
+  --success-foreground: 0 0% 100%;
+  --warning: 45 95% 60%;
+  --warning-foreground: 45 40% 10%;
+  --error: 340 90% 62%;
+  --error-foreground: 0 0% 100%;
+  --info: 190 90% 62%;
+  --info-foreground: 220 15% 10%;
+  --accent: 265 89% 78%;
+  --accent-foreground: 0 0% 100%;
+  --cord: hsl(280 25% 55%);
+  --cord-end: hsl(280 30% 72%);
+  --bulb-stroke: hsl(300 60% 75%);
+  --bulb-fill: hsla(321 85% 70% / 0.12);
+}
+
+/*
+ * "Dim" themes: slate-base palettes that are brighter than the black themes
+ * but dark enough to remain readable with the codebase's hardcoded white
+ * text and white-tinted overlays. A true paper-white theme would require
+ * a full migration of ~1,300 hardcoded text-white / rgba(235,245,255,*) uses.
+ */
+[data-theme="light"] {
+  --bg: 220 14% 20%;
+  --fg: 210 24% 96%;
+  --background: 220 14% 20%;
+  --foreground: 210 24% 96%;
+  --muted: 220 12% 28%;
+  --muted-foreground: 215 14% 72%;
+  --bg-grad-from: 215 22% 22%;
+  --bg-grad-to: 225 16% 18%;
+  --nav-bg: 220 14% 18%;
+  --nav-border: 210 35% 72%;
+  --card-bg: 220 14% 24%;
+  --card-ring: 210 90% 68%;
+  --card-glow: 210 95% 62%;
+  --input-border: 215 14% 40%;
+  --input-focus: 210 100% 65%;
+  --primary: 210 100% 65%;
+  --primary-foreground: 220 20% 12%;
+  --particle-color: #6aa8ff;
+  --grid-opacity: 0.09;
+  --overscroll: 220 14% 22%;
+  --surface-0: hsl(220 14% 22%);
+  --surface-1: hsl(220 14% 26%);
+  --surface-2: hsl(220 14% 30%);
+  --divider: hsl(215 14% 50% / 0.28);
+  --success: 142 70% 55%;
+  --success-foreground: 0 0% 100%;
+  --warning: 38 92% 62%;
+  --warning-foreground: 38 40% 12%;
+  --error: 0 75% 66%;
+  --error-foreground: 0 0% 100%;
+  --info: 199 89% 66%;
+  --info-foreground: 220 20% 12%;
+  --accent: 265 85% 72%;
+  --accent-foreground: 0 0% 100%;
+  --cord: hsl(210 14% 58%);
+  --cord-end: hsl(210 14% 72%);
+  --bulb-stroke: hsl(210 10% 80%);
+  --bulb-fill: hsla(210 80% 72% / 0.10);
+}
+
+[data-theme="nix-light"] {
+  --bg: 160 10% 20%;
+  --fg: 210 24% 96%;
+  --background: 160 10% 20%;
+  --foreground: 210 24% 96%;
+  --muted: 160 10% 28%;
+  --muted-foreground: 160 14% 72%;
+  --bg-grad-from: 155 18% 22%;
+  --bg-grad-to: 165 12% 18%;
+  --nav-bg: 160 10% 18%;
+  --nav-border: 150 50% 65%;
+  --card-bg: 160 10% 24%;
+  --card-ring: 155 75% 58%;
+  --card-glow: 155 80% 52%;
+  --input-border: 160 10% 40%;
+  --input-focus: 155 75% 60%;
+  --primary: 155 70% 58%;
+  --primary-foreground: 160 20% 10%;
+  --particle-color: #4fd3a1;
+  --grid-opacity: 0.08;
+  --overscroll: 160 10% 22%;
+  --surface-0: hsl(160 10% 22%);
+  --surface-1: hsl(160 10% 26%);
+  --surface-2: hsl(160 10% 30%);
+  --divider: hsl(150 14% 50% / 0.28);
+  --success: 142 70% 55%;
+  --success-foreground: 0 0% 100%;
+  --warning: 38 92% 62%;
+  --warning-foreground: 38 40% 12%;
+  --error: 0 75% 66%;
+  --error-foreground: 0 0% 100%;
+  --info: 175 75% 62%;
+  --info-foreground: 160 20% 10%;
+  --accent: 170 70% 58%;
+  --accent-foreground: 160 20% 10%;
+  --cord: hsl(150 14% 58%);
+  --cord-end: hsl(150 14% 72%);
+  --bulb-stroke: hsl(150 10% 80%);
+  --bulb-fill: hsla(155 70% 72% / 0.10);
 }
 
 [data-theme="nix-dark"] {
@@ -250,4 +451,40 @@ body::before {
 
 .animate-glow-pulse {
   animation: glow-pulse 2s ease-in-out infinite;
+}
+
+/* Hide horizontal scrollbar for tag rails */
+.scrollbar-none {
+  scrollbar-width: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
+/* Blog article prose styling — tuned for long-form reading */
+.blog-prose {
+  color: rgba(220, 235, 255, 0.86);
+  font-size: 17px;
+  line-height: 1.8;
+}
+.blog-prose > *:first-child {
+  margin-top: 0;
+}
+.blog-prose p {
+  margin-top: 1.25em;
+  margin-bottom: 1.25em;
+}
+.blog-prose strong {
+  color: rgba(236, 245, 255, 0.98);
+}
+.blog-prose a {
+  word-break: break-word;
+}
+.blog-prose pre code {
+  font-variant-ligatures: none;
+}
+@media (min-width: 768px) {
+  .blog-prose {
+    font-size: 18px;
+  }
 }

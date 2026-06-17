@@ -9,7 +9,10 @@ type Props = React.InputHTMLAttributes<HTMLInputElement> & {
 
 const FloatingInput = React.forwardRef<HTMLInputElement, Props>(
   ({ label, error, className = "", id, ...props }, ref) => {
-    const inputId = id || React.useId();
+    // useId must run unconditionally (Rules of Hooks); fall back to it only if
+    // no id was provided.
+    const generatedId = React.useId();
+    const inputId = id || generatedId;
     const [focused, setFocused] = React.useState(false);
     const [value, setValue] = React.useState("");
     const showFloat = focused || value.length > 0;

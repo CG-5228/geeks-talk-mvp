@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { db } from '@/lib/db';
+import { publish } from '@/lib/liveBus';
+import { aggregateReactionsByMessage } from '@/lib/reactions';
+import { canAccessRoom, getAccessibleRoom } from '@/lib/live/access';
 
 // POST /api/live/messages/[messageId]/reactions - Add reaction to channel message
 export async function POST(req: NextRequest, props: { params: Promise<{ messageId: string }> }) {
@@ -36,6 +39,11 @@ export async function POST(req: NextRequest, props: { params: Promise<{ messageI
       return NextResponse.json({ error: 'Message not found' }, { status: 404 });
     }
 
+    const room = await getAccessibleRoom(message.roomId);
+    if (!room || !canAccessRoom(room, session.user.id)) {
+      return NextResponse.json({ error: 'Access denied' }, { status: 403 });
+    }
+
     // Check if reaction already exists
     const existingReaction = await db.messageReaction.findFirst({
       where: {
@@ -45,21 +53,11 @@ export async function POST(req: NextRequest, props: { params: Promise<{ messageI
       },
     });
 
+    let action: 'added' | 'removed';
     if (existingReaction) {
-      // Remove existing reaction
-      await db.messageReaction.delete({
-        where: { id: existingReaction.id },
-      });
-
-      // Real-time updates handled via polling
-
-      return NextResponse.json({
-        action: 'removed',
-        emoji,
-        message: 'Reaction removed',
-      });
+      await db.messageReaction.delete({ where: { id: existingReaction.id } });
+      action = 'removed';
     } else {
-      // Add new reaction
       await db.messageReaction.create({
         data: {
           messageId: messageId,
@@ -68,15 +66,27 @@ export async function POST(req: NextRequest, props: { params: Promise<{ messageI
           emoji: emoji,
         },
       });
-
-      // Real-time updates handled via polling
-
-      return NextResponse.json({
-        action: 'added',
-        emoji,
-        message: 'Reaction added',
-      });
+      action = 'added';
     }
+
+    // Publish the post-write aggregated summary so clients can replace the
+    // optimistic state with server truth.
+    try {
+      const map = await aggregateReactionsByMessage([messageId], 'channel');
+      publish(`channel:${message.roomId}`, 'reaction:updated', {
+        messageId,
+        messageType: 'channel',
+        reactions: map[messageId] || [],
+      });
+    } catch (err) {
+      console.error('Failed to publish reaction update:', err);
+    }
+
+    return NextResponse.json({
+      action,
+      emoji,
+      message: action === 'added' ? 'Reaction added' : 'Reaction removed',
+    });
   } catch (error) {
     console.error('Error managing message reaction:', error);
     return NextResponse.json(
@@ -96,6 +106,20 @@ export async function GET(req: NextRequest, props: { params: Promise<{ messageId
     }
 
     const { messageId } = params;
+
+    const message = await db.message.findUnique({
+      where: { id: messageId },
+      select: { roomId: true },
+    });
+
+    if (!message) {
+      return NextResponse.json({ error: 'Message not found' }, { status: 404 });
+    }
+
+    const room = await getAccessibleRoom(message.roomId);
+    if (!room || !canAccessRoom(room, session.user.id)) {
+      return NextResponse.json({ error: 'Access denied' }, { status: 403 });
+    }
 
     // Get all reactions for this message
     const reactions = await db.messageReaction.findMany({

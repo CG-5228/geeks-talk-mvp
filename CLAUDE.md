@@ -115,6 +115,48 @@ When modifying DB:
 
 ---
 
+## 5.1 Database Safety Protocol (CRITICAL — read every time)
+
+**Historical incident (2026-04-22):** Running `prisma migrate diff --shadow-database-url "$DATABASE_URL"` against the main DB caused Prisma to reset the "shadow" database (which was the real database) and replay only the known migrations, wiping every table and column that had been added via `prisma db push`. Result: full data loss on the local dev DB. Never repeat this.
+
+### FORBIDDEN without explicit, typed user confirmation
+
+These commands and flag combinations must NEVER be run by Claude (or any automated process) against any database that contains data — **especially** production. They reset, drop, or replay-from-scratch the target DB.
+
+| Command / flag | What it does | Safe alternative |
+|---|---|---|
+| `prisma migrate reset` | Drops and recreates the database | No. Restore from backup, then reapply. |
+| `prisma migrate dev` with a shadow URL that points at a real DB | Resets the shadow DB (= real DB) between replays | Use a dedicated `SHADOW_DATABASE_URL` (separate DB) or omit the flag — Prisma will create/drop a temp shadow automatically |
+| `prisma migrate diff --shadow-database-url <any real URL>` | Resets that DB to replay migrations | Use `--from-url` (read-only introspection) with `--to-schema-datamodel`; do not pass `--shadow-database-url` unless the URL is a disposable DB |
+| `prisma db push --force-reset` | Drops all tables and recreates | Restore from backup; never use on a DB with data |
+| Any manual `DROP DATABASE` / `DROP SCHEMA public CASCADE` | Obvious data loss | N/A |
+
+### Mandatory pre-checks before any schema-touching Prisma command
+
+1. Confirm which DB the command targets. Print the URL host/db name back to the user. Never assume.
+2. Confirm a current backup exists (for non-trivial DBs). If no backup, say so and ask before proceeding.
+3. Know the difference: `migrate deploy` (safe, additive) vs `migrate dev` (local only, uses shadow) vs `db push` (syncs schema, never drops without `--force-reset`) vs `migrate diff` (analysis — read-only UNLESS `--shadow-database-url` is set).
+4. `--shadow-database-url` means "a DB Prisma is allowed to wipe." Never point it at a DB that holds data.
+
+### Production / auto-deploy guarantees
+
+The GitHub Actions pipeline (`.github/workflows/deploy.yml` + `scripts/auto-migrate.sh`) is already safe:
+- Only runs `prisma migrate deploy` (applies pending migrations; never drops, never replays).
+- Explicitly disables automatic baselining — P3005 errors log a warning and proceed.
+- Only `prisma generate` on top.
+
+**Do not add any of the following to deploy scripts, CI, or production-targeted code paths:** `migrate reset`, `migrate dev`, `migrate diff --shadow-database-url …`, `db push --force-reset`, or any command that sets `--shadow-database-url` to a production URL. If a future migration problem surfaces in production, fix it via a new forward-migration SQL applied with `prisma migrate deploy` or `db execute` — never by replaying or resetting.
+
+### If asked to "fix migration drift" / "clean up migrations"
+
+This is the exact scenario that caused the incident. Procedure:
+1. Confirm which environment (local / staging / prod) and whether a backup exists.
+2. Prefer `prisma migrate diff --from-url <live> --to-schema-datamodel prisma/schema.prisma --script` (no shadow flag) to generate SQL against the live schema.
+3. Apply the generated SQL via `prisma db execute --file <path>` and then `prisma migrate resolve --applied <name>`.
+4. Never use `--shadow-database-url <live-db>` to validate ordering.
+
+---
+
 ## 6. Workflow Rules
 
 Before making changes:

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { db } from '@/lib/db';
+import { publishMany } from '@/lib/liveBus';
 
 // DELETE /api/live/dms/message/[messageId] - Unsend a DM message
 export async function DELETE(req: NextRequest, props: { params: Promise<{ messageId: string }> }) {
@@ -69,6 +70,12 @@ export async function DELETE(req: NextRequest, props: { params: Promise<{ messag
       },
     });
 
+    publishMany(
+      [`user:${message.senderId}`, `user:${message.receiverId}`],
+      'dm:deleted',
+      { messageId }
+    );
+
     return NextResponse.json({
       success: true,
       message: 'Message unsent successfully',
@@ -79,6 +86,65 @@ export async function DELETE(req: NextRequest, props: { params: Promise<{ messag
       { error: 'Failed to unsend message' },
       { status: 500 }
     );
+  }
+}
+
+// PATCH /api/live/dms/message/[messageId] - Edit a DM message
+export async function PATCH(req: NextRequest, props: { params: Promise<{ messageId: string }> }) {
+  const params = await props.params;
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const { messageId } = params;
+    const body = await req.json().catch(() => null);
+    const content = (body?.content || '').toString().trim();
+    if (!content) return NextResponse.json({ error: 'Content required' }, { status: 400 });
+    if (content.length > 4000) return NextResponse.json({ error: 'Content too long' }, { status: 400 });
+
+    const existing = await db.directMessage.findUnique({
+      where: { id: messageId },
+      select: { id: true, senderId: true, receiverId: true, createdAt: true, unsent: true },
+    });
+    if (!existing) return NextResponse.json({ error: 'Message not found' }, { status: 404 });
+    if (existing.senderId !== session.user.id) {
+      return NextResponse.json({ error: 'You can only edit your own messages' }, { status: 403 });
+    }
+    if (existing.unsent) {
+      return NextResponse.json({ error: 'Cannot edit an unsent message' }, { status: 400 });
+    }
+
+    const editWindow = 15 * 60 * 1000;
+    if (Date.now() - new Date(existing.createdAt).getTime() > editWindow) {
+      return NextResponse.json({ error: 'Cannot edit messages older than 15 minutes' }, { status: 400 });
+    }
+
+    const updated = await db.directMessage.update({
+      where: { id: messageId },
+      data: { content, editedAt: new Date() },
+      select: { id: true, content: true, editedAt: true, senderId: true, receiverId: true },
+    });
+
+    publishMany(
+      [`user:${updated.senderId}`, `user:${updated.receiverId}`],
+      'dm:updated',
+      {
+        messageId: updated.id,
+        content: updated.content,
+        editedAt: updated.editedAt?.toISOString() ?? null,
+      }
+    );
+
+    return NextResponse.json({
+      id: updated.id,
+      content: updated.content,
+      editedAt: updated.editedAt?.toISOString() ?? null,
+    });
+  } catch (error) {
+    console.error('Error editing DM message:', error);
+    return NextResponse.json({ error: 'Failed to edit message' }, { status: 500 });
   }
 }
 

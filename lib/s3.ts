@@ -73,12 +73,32 @@ export async function deleteFromS3(key: string): Promise<void> {
   await s3Client.send(command);
 }
 
-export async function getPresignedUrl(key: string, expiresIn: number = 7 * 24 * 60 * 60): Promise<string> {
-  const command = new GetObjectCommand({
+export async function getPresignedUrl(
+  key: string,
+  expiresIn: number = 7 * 24 * 60 * 60,
+  options?: { inline?: boolean; contentType?: string; fileName?: string }
+): Promise<string> {
+  const commandInput: ConstructorParameters<typeof GetObjectCommand>[0] = {
     Bucket: BUCKET_NAME,
     Key: key,
-  });
+  };
 
+  if (options?.inline) {
+    // RFC 5987 / 6266: UTF-8 filename* parameter for non-ASCII safety.
+    const safeName = options.fileName
+      ? sanitizeFileName(options.fileName)
+      : undefined;
+    const disposition = safeName
+      ? `inline; filename="${safeName}"`
+      : 'inline';
+    commandInput.ResponseContentDisposition = disposition;
+  }
+
+  if (options?.contentType) {
+    commandInput.ResponseContentType = options.contentType;
+  }
+
+  const command = new GetObjectCommand(commandInput);
   return await getSignedUrl(s3Client, command, { expiresIn });
 }
 

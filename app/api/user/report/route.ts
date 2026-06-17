@@ -4,7 +4,7 @@ import { authOptions } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { sendEmailWithFallback } from '@/lib/emailResend';
 import { renderUserReportEmail } from '@/lib/emailTemplates';
-import { getPresignedUrl } from '@/lib/s3';
+import { requireAdmin } from '@/lib/adminGate';
 
 // POST /api/user/report - Create a user report
 export async function POST(req: NextRequest) {
@@ -98,33 +98,25 @@ export async function POST(req: NextRequest) {
       throw error;
     });
 
-    // Normalize attachments upfront for reuse
-    let normalizedAttachments: Array<{ fileName: string; fileSize: number; fileType: string; s3Key: string; s3Url: string; }> = [];
+    // Normalize attachments. Only s3Key matters now — the admin UI re-signs
+    // fresh URLs on demand, so we no longer persist a short-lived s3Url.
+    let normalizedAttachments: Array<{ fileName: string; fileSize: number; fileType: string; s3Key: string; }> = [];
     if (attachments && attachments.length > 0) {
       try {
-        console.log('📎 Normalizing attachments (raw):', attachments);
-        const base = (attachments as any[])
+        // s3Key is client-supplied; only accept keys under the reporter's own
+        // upload prefix (see report/upload route). Without this, an attacker can
+        // point an attachment at ANY object in the bucket and have the admin
+        // re-sign endpoint disclose it.
+        const allowedPrefix = `report-attachments/${session.user.id}/`;
+        normalizedAttachments = (attachments as any[])
           .map((att: any) => (att && att.file ? att.file : att))
           .map((att: any) => ({
             fileName: String(att?.fileName || att?.name || 'evidence'),
             fileSize: Number(att?.fileSize ?? att?.size ?? 0),
             fileType: String(att?.fileType || att?.type || 'application/octet-stream'),
             s3Key: String(att?.s3Key || att?.key || ''),
-            s3Url: String(att?.s3Url || att?.url || att?.signedUrl || '')
-          }));
-        // If s3Url is missing but we have s3Key, generate a short-lived URL
-        normalizedAttachments = await Promise.all(base.map(async (a) => {
-          if (!a.s3Url && a.s3Key) {
-            try {
-              a.s3Url = await getPresignedUrl(a.s3Key, 7 * 24 * 60 * 60);
-            } catch (e) {
-              console.warn('⚠️ Failed to presign URL for key', a.s3Key, e);
-            }
-          }
-          return a;
-        }));
-        normalizedAttachments = normalizedAttachments.filter((a) => !!a.s3Url);
-        console.log('📎 Normalized attachments:', normalizedAttachments);
+          }))
+          .filter((a) => !!a.s3Key && a.s3Key.startsWith(allowedPrefix));
       } catch (e) {
         console.error('❌ Failed to normalize attachments:', e);
       }
@@ -134,26 +126,18 @@ export async function POST(req: NextRequest) {
     if (normalizedAttachments.length > 0) {
       for (const a of normalizedAttachments) {
         try {
-          const created = await db.userReportAttachment.create({
+          await db.userReportAttachment.create({
             data: {
               reportId: report.id,
               fileName: a.fileName,
               fileSize: isNaN(a.fileSize) ? 0 : a.fileSize,
               fileType: a.fileType,
               s3Key: a.s3Key,
-              s3Url: a.s3Url
             }
           });
-          console.log('✅ Attachment saved:', { id: created.id, fileName: created.fileName });
         } catch (e) {
           console.error('❌ Failed to save attachment:', a, e);
         }
-      }
-    } else {
-      if (attachments && attachments.length > 0) {
-        console.warn('⚠️ Attachments provided but none valid after normalization (missing s3Url)');
-      } else {
-        console.log('📎 No attachments to create');
       }
     }
 
@@ -212,23 +196,14 @@ export async function POST(req: NextRequest) {
       // continue
     }
 
-    // Fetch the report with attachments for email
+    // Fetch the report with attachments for email. Email links point at
+    // the admin re-sign endpoint so they stay valid indefinitely.
     const reportWithAttachments = await db.userReport.findUnique({
       where: { id: report.id },
       include: { attachments: true }
     });
-    
-    console.log('📧 Email attachments data:', reportWithAttachments?.attachments);
-    console.log('📧 Attachments count:', reportWithAttachments?.attachments?.length || 0);
-    console.log('📧 Attachments details:', reportWithAttachments?.attachments?.map(a => ({
-      fileName: a.fileName,
-      fileSize: a.fileSize,
-      s3Url: a.s3Url
-    })));
 
-    const attachmentsForEmail = (reportWithAttachments?.attachments && reportWithAttachments.attachments.length > 0)
-      ? reportWithAttachments.attachments
-      : normalizedAttachments;
+    const attachmentsForEmail = reportWithAttachments?.attachments ?? [];
 
     // Send email notifications to ALL admins (deduped by email)
     if (admins && admins.length > 0) {
@@ -302,20 +277,8 @@ export async function POST(req: NextRequest) {
 // GET /api/user/report?userId=xxx - Get reports for a specific user (admin only)
 export async function GET(req: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    // Check if user is admin
-    const user = await db.user.findUnique({
-      where: { id: session.user.id },
-      select: { role: true },
-    });
-
-    if (user?.role !== 'admin') {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-    }
+    const gate = await requireAdmin();
+    if (!gate.ok) return gate.response;
 
     const { searchParams } = new URL(req.url);
     const userId = searchParams.get('userId');

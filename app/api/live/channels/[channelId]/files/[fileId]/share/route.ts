@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { getPresignedUrl } from '@/lib/s3';
+import { requireNotBanned } from '@/lib/banEnforce';
 
 export async function POST(
   request: NextRequest,
@@ -13,6 +14,9 @@ export async function POST(
   if (!session?.user?.id) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+
+  const banCheck = await requireNotBanned(session.user.id);
+  if (!banCheck.ok) return banCheck.response;
 
   try {
     const { channelId, fileId } = params;

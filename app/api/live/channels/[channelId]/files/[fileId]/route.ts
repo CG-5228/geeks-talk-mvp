@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth';
 import { isAdmin } from '@/lib/admin';
 import { db } from '@/lib/db';
 import { getPresignedUrl, deleteFromS3 } from '@/lib/s3';
+import { canAccessRoom, getAccessibleRoom } from '@/lib/live/access';
 
 export async function GET(
   request: NextRequest,
@@ -19,26 +20,13 @@ export async function GET(
     const { channelId, fileId } = params;
 
     // Check if user has access to this channel
-    const channel = await db.room.findUnique({
-      where: { id: channelId },
-      select: { 
-        id: true, 
-        visibility: true, 
-        participants: true,
-        ownerId: true 
-      },
-    });
+    const channel = await getAccessibleRoom(channelId);
 
     if (!channel) {
       return NextResponse.json({ error: 'Channel not found' }, { status: 404 });
     }
 
-    // Check if user can access this channel
-    const canAccess = channel.visibility === 'public' || 
-                     channel.participants.includes(session.user.id) ||
-                     channel.ownerId === session.user.id;
-
-    if (!canAccess) {
+    if (!canAccessRoom(channel, session.user.id)) {
       return NextResponse.json({ error: 'Access denied' }, { status: 403 });
     }
 

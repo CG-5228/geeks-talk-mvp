@@ -1,9 +1,19 @@
 "use client";
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Smile, Calculator, Plus, X, File, Image, Send } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import data from '@emoji-mart/data';
 import MessageReplyContext from '../message/MessageReplyContext';
+import { useMessageDraft } from '@/lib/live/useMessageDraft';
+import ComposerAutocomplete from '../composer/ComposerAutocomplete';
+import {
+  detectToken,
+  getEmojiSuggestions,
+  getSlashSuggestions,
+  type AnySuggestion,
+  type AutocompleteToken,
+  type MentionSuggestion,
+} from '../composer/autocomplete';
 
 // Optimize: import picker once at module level
 const Picker = dynamic(() => import('@emoji-mart/react'), { ssr: false }) as any;
@@ -14,6 +24,7 @@ export interface MessageInputProps {
   maxChars?: number;
   disabled?: boolean;
   channelId?: string;
+  draftScope?: string;
   replyContext?: {
     message: {
       id: string;
@@ -25,10 +36,11 @@ export interface MessageInputProps {
   };
 }
 
-export default function MessageInput({ onSendMessage, maxChars, disabled, channelId, replyContext }: MessageInputProps) {
+export default function MessageInput({ onSendMessage, maxChars, disabled, channelId, draftScope, replyContext }: MessageInputProps) {
   // Read maxChars from environment variable, fallback to 500
   const maxCharsLimit = maxChars || parseInt(process.env.NEXT_PUBLIC_MESSAGE_MAX_LENGTH || '500', 10);
-  const [text, setText] = useState("");
+  const effectiveScope = draftScope ?? (channelId ? `ch:${channelId}` : undefined);
+  const { value: text, update: setText, clear: clearDraft } = useMessageDraft(effectiveScope);
   const taRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [showEmoji, setShowEmoji] = useState(false);
@@ -36,8 +48,95 @@ export default function MessageInput({ onSendMessage, maxChars, disabled, channe
   const [uploadingFiles, setUploadingFiles] = useState<File[]>([]);
   const [uploadedFiles, setUploadedFiles] = useState<Array<{id: string, name: string, type: string, url: string}>>([]);
   const emojiRef = useRef<HTMLDivElement>(null);
+  const [cursorPos, setCursorPos] = useState(0);
+  const [mentionResults, setMentionResults] = useState<MentionSuggestion[]>([]);
+  const [mentionLoading, setMentionLoading] = useState(false);
+  const [autocompleteIndex, setAutocompleteIndex] = useState(0);
   const remaining = Math.max(0, maxCharsLimit - text.length);
   const canSend = !disabled && (text.trim().length > 0 || uploadedFiles.length > 0) && remaining >= 0;
+
+  const token: AutocompleteToken | null = useMemo(() => detectToken(text, cursorPos), [text, cursorPos]);
+
+  // Debounced mention fetch — only hits the members endpoint when an @token is active.
+  useEffect(() => {
+    if (!token || token.trigger !== 'mention' || !channelId) {
+      setMentionResults([]);
+      setMentionLoading(false);
+      return;
+    }
+    const q = token.query;
+    const ctrl = new AbortController();
+    setMentionLoading(true);
+    const timer = setTimeout(() => {
+      fetch(
+        `/api/live/channels/${encodeURIComponent(channelId)}/members?search=${encodeURIComponent(q)}`,
+        { signal: ctrl.signal },
+      )
+        .then((r) => (r.ok ? r.json() : { members: [] }))
+        .then((data) => {
+          const members: MentionSuggestion[] = (data.members || [])
+            .slice(0, 8)
+            .map((m: {
+              id: string;
+              name: string | null;
+              username: string | null;
+              image: string | null;
+              onlineStatus?: string;
+            }) => ({
+              kind: 'mention' as const,
+              id: m.id,
+              name: m.name || m.username || 'User',
+              username: m.username || m.id.slice(0, 8),
+              image: m.image ?? null,
+              onlineStatus: (m.onlineStatus === 'online' || m.onlineStatus === 'away'
+                ? m.onlineStatus
+                : 'offline') as 'online' | 'away' | 'offline',
+              insert: `@${m.username || m.id}`,
+            }));
+          setMentionResults(members);
+          setMentionLoading(false);
+        })
+        .catch(() => {
+          setMentionLoading(false);
+        });
+    }, 120);
+    return () => {
+      ctrl.abort();
+      clearTimeout(timer);
+    };
+  }, [token, channelId]);
+
+  const autocompleteItems: AnySuggestion[] = useMemo(() => {
+    if (!token) return [];
+    if (token.trigger === 'mention') return mentionResults;
+    if (token.trigger === 'emoji') return getEmojiSuggestions(token.query);
+    return getSlashSuggestions(token.query);
+  }, [token, mentionResults]);
+
+  useEffect(() => {
+    setAutocompleteIndex(0);
+  }, [token?.trigger, token?.query, mentionResults]);
+
+  const applySuggestion = useCallback(
+    (index: number) => {
+      if (!token) return;
+      const item = autocompleteItems[index];
+      if (!item) return;
+      const needsSpace = item.kind !== 'slash' || (item.kind === 'slash' && item.commit === 'immediate');
+      const replacement = item.insert + (needsSpace ? ' ' : '');
+      const next = text.slice(0, token.start) + replacement + text.slice(token.end);
+      const caret = token.start + replacement.length;
+      setText(next);
+      requestAnimationFrame(() => {
+        const el = taRef.current;
+        if (!el) return;
+        el.focus();
+        el.setSelectionRange(caret, caret);
+        setCursorPos(caret);
+      });
+    },
+    [token, autocompleteItems, text, setText],
+  );
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -60,41 +159,125 @@ export default function MessageInput({ onSendMessage, maxChars, disabled, channe
   }, [text]);
 
   const send = () => {
-    const t = text.trim();
-    if (!t && uploadedFiles.length === 0) return;
-    
-    console.log('🔍 MessageInput send() called with:', { text: t, uploadedFiles });
-    console.log('🔍 Uploaded files details:', uploadedFiles);
-    
+    const raw = text.trim();
+    if (!raw && uploadedFiles.length === 0) return;
+
+    // Slash-command interception before we actually send.
+    if (raw.toLowerCase() === '/help') {
+      window.dispatchEvent(new CustomEvent('chat:open-shortcuts'));
+      clearDraft();
+      return;
+    }
+    let t = raw;
+    if (/^\/me\s+/i.test(raw)) {
+      const body = raw.replace(/^\/me\s+/i, '').trim();
+      if (body) t = `_${body}_`;
+    }
+
     onSendMessage(t, replyContext?.message.id, uploadedFiles);
-    setText("");
+    clearDraft();
     setUploadedFiles([]);
     // Clear reply context after sending
     if (replyContext) {
       replyContext.onCancel();
     }
+    // Broadcast that we've stopped typing.
+    sendTypingStop();
     // keep focus
     requestAnimationFrame(() => taRef.current?.focus());
   };
 
-  const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(event.target.files || []);
-    if (files.length === 0) return;
+  // Typing broadcast: emits `typing:start` on the first keystroke and
+  // `typing:stop` after 3s of inactivity. Debounced so we don't hammer the
+  // endpoint on every keypress.
+  const typingActiveRef = useRef(false);
+  const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-    // Validate file size (50MB max)
-    const validFiles = files.filter(file => {
+  const emitTyping = useCallback(async (isTyping: boolean) => {
+    if (!channelId) return;
+    try {
+      await fetch('/api/live/typing', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ channelId, isTyping }),
+      });
+    } catch {
+      // best-effort only — typing hints are fire-and-forget
+    }
+  }, [channelId]);
+
+  const sendTypingStart = useCallback(() => {
+    if (!typingActiveRef.current) {
+      typingActiveRef.current = true;
+      emitTyping(true);
+    }
+    if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+    typingTimerRef.current = setTimeout(() => {
+      typingActiveRef.current = false;
+      emitTyping(false);
+    }, 3000);
+  }, [emitTyping]);
+
+  const sendTypingStop = useCallback(() => {
+    if (typingTimerRef.current) {
+      clearTimeout(typingTimerRef.current);
+      typingTimerRef.current = null;
+    }
+    if (typingActiveRef.current) {
+      typingActiveRef.current = false;
+      emitTyping(false);
+    }
+  }, [emitTyping]);
+
+  // Cleanup on unmount / channel switch: make sure we don't leave a stale typer.
+  useEffect(() => {
+    return () => {
+      if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+      if (typingActiveRef.current) {
+        typingActiveRef.current = false;
+        emitTyping(false);
+      }
+    };
+  }, [channelId, emitTyping]);
+
+  const acceptFiles = (files: File[]) => {
+    if (files.length === 0) return;
+    const validFiles = files.filter((file) => {
       if (file.size > 50 * 1024 * 1024) {
         alert(`File ${file.name} is too large. Maximum size is 50MB.`);
         return false;
       }
       return true;
     });
-
     if (validFiles.length === 0) return;
-
     setUploadingFiles(validFiles);
     uploadFiles(validFiles);
   };
+
+  const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+    acceptFiles(Array.from(event.target.files || []));
+    event.target.value = '';
+  };
+
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const items = Array.from(e.clipboardData?.items || []);
+    const files = items
+      .filter((it) => it.kind === 'file')
+      .map((it) => it.getAsFile())
+      .filter((f): f is File => f !== null);
+    if (files.length === 0) return;
+    e.preventDefault();
+    acceptFiles(files);
+  };
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<File[]>).detail;
+      if (Array.isArray(detail) && detail.length > 0) acceptFiles(detail);
+    };
+    window.addEventListener('chat:upload-files', handler as EventListener);
+    return () => window.removeEventListener('chat:upload-files', handler as EventListener);
+  }, [channelId]);
 
   const uploadFiles = async (files: File[]) => {
     if (!channelId) {
@@ -170,6 +353,29 @@ export default function MessageInput({ onSendMessage, maxChars, disabled, channe
   };
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (token && autocompleteItems.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setAutocompleteIndex((i) => Math.min(i + 1, autocompleteItems.length - 1));
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setAutocompleteIndex((i) => Math.max(0, i - 1));
+        return;
+      }
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        e.preventDefault();
+        applySuggestion(autocompleteIndex);
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        // Move cursor past the token end so detectToken returns null.
+        setCursorPos(-1);
+        return;
+      }
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       if (canSend) send();
@@ -187,6 +393,16 @@ export default function MessageInput({ onSendMessage, maxChars, disabled, channe
       )}
       
       <div className="relative overflow-visible rounded-full bg-white/5 ring-1 ring-border/20 backdrop-blur-md p-2">
+        {token && (
+          <ComposerAutocomplete
+            items={autocompleteItems}
+            activeIndex={autocompleteIndex}
+            trigger={token.trigger}
+            query={token.query}
+            onSelect={applySuggestion}
+            onHover={setAutocompleteIndex}
+          />
+        )}
         <div className="flex items-center gap-2">
           {/* Emoji toggle on far left */}
           <div className="relative" ref={emojiRef}>
@@ -231,11 +447,27 @@ export default function MessageInput({ onSendMessage, maxChars, disabled, channe
             <textarea
               ref={taRef}
               value={text}
-              onChange={(e) => setText(e.target.value)}
+              onChange={(e) => {
+                setText(e.target.value);
+                setCursorPos(e.target.selectionStart ?? e.target.value.length);
+                if (e.target.value.length > 0) sendTypingStart();
+                else sendTypingStop();
+              }}
+              onSelect={(e) => {
+                const el = e.currentTarget;
+                setCursorPos(el.selectionStart ?? 0);
+              }}
+              onClick={(e) => setCursorPos(e.currentTarget.selectionStart ?? 0)}
               onKeyDown={onKeyDown}
-              placeholder="Type a message"
+              onKeyUp={(e) => setCursorPos(e.currentTarget.selectionStart ?? 0)}
+              onPaste={handlePaste}
+              onBlur={sendTypingStop}
+              disabled={disabled}
+              placeholder={disabled ? 'You cannot send messages while suspended' : 'Type a message — @mention, :emoji:, /commands, markdown'}
               rows={1}
-              className="w-full resize-none bg-transparent outline-none text-[rgba(236,245,255,0.95)] placeholder:text-[rgba(220,235,255,0.55)] min-h-[44px] max-h-40"
+              className="w-full resize-none bg-transparent outline-none text-[rgba(236,245,255,0.95)] placeholder:text-[rgba(220,235,255,0.55)] min-h-[44px] max-h-40 disabled:cursor-not-allowed disabled:opacity-60"
+              aria-autocomplete={token ? 'list' : undefined}
+              aria-expanded={token ? autocompleteItems.length > 0 : undefined}
             />
             
             {/* File previews */}

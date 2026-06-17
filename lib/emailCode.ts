@@ -19,10 +19,9 @@ const CODE_CONFIGS: Record<EmailCodePurpose, EmailCodeConfig> = {
  * Generate a random verification code
  */
 export function generateCode(length: number = 6): string {
-  const digits = '0123456789';
   let code = '';
   for (let i = 0; i < length; i++) {
-    code += digits[Math.floor(Math.random() * digits.length)];
+    code += crypto.randomInt(0, 10).toString();
   }
   return code;
 }
@@ -43,6 +42,7 @@ export async function createEmailCode(
   userId?: string
 ): Promise<{ code: string; expiresAt: Date }> {
   const config = CODE_CONFIGS[purpose];
+  const normalizedEmail = email.trim().toLowerCase();
   const code = generateCode(config.codeLength);
   const codeHash = hashCode(code);
   const expiresAt = new Date(Date.now() + config.ttl * 60 * 1000);
@@ -50,7 +50,7 @@ export async function createEmailCode(
   // Clean up any existing codes for this email/purpose
   await db.emailCode.deleteMany({
     where: {
-      email,
+      email: normalizedEmail,
       purpose,
       OR: [
         { expiresAt: { lt: new Date() } },
@@ -62,7 +62,7 @@ export async function createEmailCode(
   // Create new code
   await db.emailCode.create({
     data: {
-      email,
+      email: normalizedEmail,
       userId,
       purpose,
       codeHash,
@@ -82,14 +82,16 @@ export async function verifyEmailCode(
   purpose: EmailCodePurpose
 ): Promise<{ valid: boolean; userId?: string; error?: string }> {
   const config = CODE_CONFIGS[purpose];
-  const codeHash = hashCode(code);
+  const normalizedEmail = email.trim().toLowerCase();
 
-  // Find the code
+  // Find the latest active code for this email/purpose WITHOUT keying on the
+  // supplied code hash. The previous implementation looked the row up by
+  // codeHash, so a wrong guess returned null and never touched the attempts
+  // counter — making the lockout dead code and the 6-digit code brute-forceable.
   const emailCode = await db.emailCode.findFirst({
     where: {
-      email,
+      email: normalizedEmail,
       purpose,
-      codeHash,
       expiresAt: { gt: new Date() },
       consumedAt: null
     },
@@ -100,18 +102,27 @@ export async function verifyEmailCode(
     return { valid: false, error: 'Invalid or expired code' };
   }
 
-  // Check attempts
+  // Enforce the lockout BEFORE comparing so a brute-force run is bounded.
   if (emailCode.attempts >= config.maxAttempts) {
     return { valid: false, error: 'Too many attempts. Please request a new code.' };
   }
 
-  // Increment attempts
-  await db.emailCode.update({
-    where: { id: emailCode.id },
-    data: { attempts: emailCode.attempts + 1 }
-  });
+  // Constant-time comparison of the supplied code against the stored hash.
+  const expected = Buffer.from(emailCode.codeHash, 'hex');
+  const actual = Buffer.from(hashCode(code), 'hex');
+  const matches =
+    expected.length === actual.length && crypto.timingSafeEqual(expected, actual);
 
-  // Mark as consumed
+  if (!matches) {
+    // Count the failed attempt so repeated wrong guesses hit the lockout.
+    await db.emailCode.update({
+      where: { id: emailCode.id },
+      data: { attempts: { increment: 1 } }
+    });
+    return { valid: false, error: 'Invalid or expired code' };
+  }
+
+  // Correct code — consume it (single use).
   await db.emailCode.update({
     where: { id: emailCode.id },
     data: { consumedAt: new Date() }

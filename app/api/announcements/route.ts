@@ -16,22 +16,6 @@ export async function GET(req: Request) {
   });
 
   if (!announcement) {
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/bb9359b2-0268-40e1-8961-bb0e3cf8ee2b', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        sessionId: 'debug-session',
-        runId: 'pre-fix',
-        hypothesisId: 'H1',
-        location: 'app/api/announcements/route.ts:announcement-null',
-        message: 'No active announcement found for scope',
-        data: { scope },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
-
     return NextResponse.json({ announcement: null });
   }
 
@@ -46,27 +30,6 @@ export async function GET(req: Request) {
     });
     dismissed = !!dismissal;
   }
-
-  // #region agent log
-  fetch('http://127.0.0.1:7242/ingest/bb9359b2-0268-40e1-8961-bb0e3cf8ee2b', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      sessionId: 'debug-session',
-      runId: 'pre-fix',
-      hypothesisId: dismissed ? 'H3' : 'H1',
-      location: 'app/api/announcements/route.ts:announcement-found',
-      message: 'Announcement fetched in public API',
-      data: {
-        scope,
-        id: announcement.id,
-        isActive: announcement.isActive,
-        dismissed,
-      },
-      timestamp: Date.now(),
-    }),
-  }).catch(() => {});
-  // #endregion
 
   return NextResponse.json({
     announcement: dismissed

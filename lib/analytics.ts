@@ -112,7 +112,10 @@ export async function updateDailyStats(date: Date, type: 'message' | 'voice' | '
         where: { lastSeen: { gte: dayStart, lte: dayEnd } }
       }),
       db.user.count({
-        where: { onlineStatus: 'online' }
+        where: {
+          onlineStatus: 'online',
+          lastSeen: { gte: new Date(Date.now() - 2 * 60 * 1000) },
+        },
       }),
       db.message.count({
         where: { createdAt: { gte: dayStart, lte: dayEnd } }
@@ -161,13 +164,21 @@ export async function getDashboardStats(period: 'day' | 'week' | 'month') {
       activeGroups,
       totalChannels,
       helpfulPercentage,
-      userStreaks
+      userStreaks,
+      pendingReports,
+      openBugs,
+      totalUsers,
     ] = await Promise.all([
-      // Current online users
+      // Current online users — must have the online flag AND a fresh heartbeat.
+      // The flag alone gets stale when a client crashes / force-closes without
+      // firing the offline beacon; the lastSeen window makes the count self-heal.
       db.user.count({
-        where: { onlineStatus: 'online' }
+        where: {
+          onlineStatus: 'online',
+          lastSeen: { gte: new Date(Date.now() - 2 * 60 * 1000) },
+        },
       }),
-      
+
       // Active users (last 24 hours)
       db.user.count({
         where: {
@@ -213,7 +224,16 @@ export async function getDashboardStats(period: 'day' | 'week' | 'month') {
       calculateHelpfulPercentage(),
       
       // Calculate average user streak
-      calculateAverageStreak()
+      calculateAverageStreak(),
+
+      // Moderation queue — pending reports
+      db.userReport.count({ where: { status: 'pending' } }),
+
+      // Operations queue — open bugs
+      db.bugReport.count({ where: { status: 'open' } }),
+
+      // Total registered users
+      db.user.count(),
     ]);
     
     // Get chart data
@@ -229,6 +249,9 @@ export async function getDashboardStats(period: 'day' | 'week' | 'month') {
       helpfulPercentage,
       averageStreak: userStreaks,
       feedbackStars: helpfulPercentage / 20, // Convert percentage to 5-star scale
+      pendingReports,
+      openBugs,
+      totalUsers,
       dailyStats
     };
   } catch (error) {
@@ -243,6 +266,9 @@ export async function getDashboardStats(period: 'day' | 'week' | 'month') {
       helpfulPercentage: 0,
       averageStreak: 0,
       feedbackStars: 0,
+      pendingReports: 0,
+      openBugs: 0,
+      totalUsers: 0,
       dailyStats: []
     };
   }

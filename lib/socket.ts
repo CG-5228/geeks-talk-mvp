@@ -1,6 +1,10 @@
-// Minimal Socket.IO server facade and global singleton helpers.
-// This lets API routes emit events without crashing when the server isn't initialized yet.
+// Backwards-compatible facade: delegates the existing emitToRoom API surface
+// to the new in-process bus in lib/liveBus.ts. Older call sites (typing,
+// presence) keep working while the bus powers the SSE stream.
 
+import { publish, publishMany } from '@/lib/liveBus';
+
+// Kept for any legacy callers referencing the socket.io-style globals.
 type IoLike = {
   to: (room: string) => { emit: (event: string, payload: unknown) => void };
   emit: (event: string, payload: unknown) => void;
@@ -21,31 +25,25 @@ export function setIO(io: IoLike) {
 
 export function emitToRoom(room: string, event: string, payload: unknown) {
   try {
-    const io = getIO();
-    if (!io) return; // no-op if server not wired yet
-    io.to(room).emit(event, payload);
+    publish(room, event, payload);
   } catch {
     // swallow emit errors to keep API stable
   }
 }
 
-// Helper function to emit to multiple rooms
 export function emitToRooms(rooms: string[], event: string, payload: unknown) {
   try {
-    const io = getIO();
-    if (!io) return;
-    rooms.forEach(room => io.to(room).emit(event, payload));
+    publishMany(rooms, event, payload);
   } catch {
     // swallow emit errors to keep API stable
   }
 }
 
-// Helper function to emit to all connected clients
 export function emitToAll(event: string, payload: unknown) {
   try {
-    const io = getIO();
-    if (!io) return;
-    io.emit(event, payload);
+    // Fan out to a synthetic global room; subscribers explicitly include 'all'
+    // if they want these (currently unused but kept for API symmetry).
+    publish('all', event, payload);
   } catch {
     // swallow emit errors to keep API stable
   }

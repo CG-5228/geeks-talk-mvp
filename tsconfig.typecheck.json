@@ -1,0 +1,5 @@
+{
+  "//": "Type-check config for `npm run typecheck` (CI + pre-commit hook). Same as tsconfig.json but excludes .next, so a stale/corrupt local build cache can't fail the check. CI has no .next on a fresh checkout, so behaviour there is identical.",
+  "extends": "./tsconfig.json",
+  "exclude": ["node_modules", "**/__tests__/**", ".next"]
+}

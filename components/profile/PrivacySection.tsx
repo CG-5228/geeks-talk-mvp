@@ -1,310 +1,215 @@
-"use client";
+'use client';
 
-import { useState, useEffect } from 'react';
-import { Download, Trash2, Check, X } from 'lucide-react';
+import { useState } from 'react';
+import { Download, Trash2 } from 'lucide-react';
+import { ToggleRow, SegmentedControl } from './SettingsToggle';
 
-export default function PrivacySection() {
-  const [privacy, setPrivacy] = useState({
-    profileVisibility: 'public' as 'public' | 'friends' | 'private',
-    showOnlineStatus: true,
-    dmPermissions: 'everyone' as 'everyone' | 'friends' | 'nobody',
-  });
+type Initial = {
+  profileVisibility: 'public' | 'friends' | 'private';
+  showOnlineStatus: boolean;
+  showEmailOnProfile: boolean;
+  dmPermissions: 'everyone' | 'friends' | 'nobody';
+};
+
+export default function PrivacySection({ initial }: { initial: Initial }) {
+  const [profileVisibility, setProfileVisibility] = useState<Initial['profileVisibility']>(
+    initial.profileVisibility,
+  );
+  const [showOnlineStatus, setShowOnlineStatus] = useState(initial.showOnlineStatus);
+  const [showEmailOnProfile, setShowEmailOnProfile] = useState(initial.showEmailOnProfile);
+  const [dmPermissions, setDmPermissions] = useState<Initial['dmPermissions']>(
+    initial.dmPermissions,
+  );
+  const [pending, setPending] = useState(false);
+  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
-  // Load privacy settings on component mount
-  useEffect(() => {
-    const loadPrivacySettings = async () => {
-      try {
-        const response = await fetch('/api/user/privacy');
-        if (response.ok) {
-          const data = await response.json();
-          setPrivacy({
-            profileVisibility: data.profileVisibility,
-            showOnlineStatus: data.showOnlineStatus,
-            dmPermissions: data.dmPermissions,
-          });
-        }
-      } catch (error) {
-        console.error('Error loading privacy settings:', error);
-        setError('Failed to load privacy settings');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadPrivacySettings();
-  }, []);
-
-  // Save privacy settings
-  const savePrivacySettings = async () => {
-    setSaving(true);
-    setError(null);
-    
+  async function save() {
+    setPending(true);
+    setMessage(null);
     try {
-      const response = await fetch('/api/user/privacy', {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(privacy),
+      const res = await fetch('/api/user/profile', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          profileVisibility,
+          showOnlineStatus,
+          showEmailOnProfile,
+          dmPermissions,
+        }),
       });
-
-      if (response.ok) {
-        setSaved(true);
-        setTimeout(() => setSaved(false), 3000);
-      } else {
-        const errorData = await response.json();
-        setError(errorData.error || 'Failed to save settings');
+      if (res.ok) setMessage({ type: 'success', text: 'Privacy saved' });
+      else {
+        const d = await res.json().catch(() => ({}));
+        setMessage({ type: 'error', text: d.error || 'Failed to save' });
       }
-    } catch (error) {
-      console.error('Error saving privacy settings:', error);
-      setError('Failed to save settings');
     } finally {
-      setSaving(false);
+      setPending(false);
     }
-  };
+  }
 
-  // Download user data
-  const downloadUserData = async () => {
+  async function download() {
     setDownloading(true);
-    setError(null);
-    
     try {
-      const response = await fetch('/api/user/data-download');
-      if (response.ok) {
-        const blob = await response.blob();
-        const url = window.URL.createObjectURL(blob);
+      const res = await fetch('/api/user/data-download');
+      if (res.ok) {
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `geeks-talk-data-export-${new Date().toISOString().split('T')[0]}.json`;
+        a.download = `geeks-talk-data-${new Date().toISOString().split('T')[0]}.json`;
         document.body.appendChild(a);
         a.click();
-        window.URL.revokeObjectURL(url);
-        document.body.removeChild(a);
-      } else {
-        const errorData = await response.json();
-        setError(errorData.error || 'Failed to download data');
+        URL.revokeObjectURL(url);
+        a.remove();
       }
-    } catch (error) {
-      console.error('Error downloading data:', error);
-      setError('Failed to download data');
     } finally {
       setDownloading(false);
     }
-  };
+  }
 
-  // Delete account
-  const deleteAccount = async () => {
+  async function deleteAccount() {
     setDeleting(true);
-    setError(null);
-    
     try {
-      const response = await fetch('/api/user/delete-account', {
+      const res = await fetch('/api/user/delete-account', {
         method: 'DELETE',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ confirmDeletion: true }),
       });
-
-      if (response.ok) {
-        // Redirect to home page after successful deletion
-        window.location.href = '/';
-      } else {
-        const errorData = await response.json();
-        setError(errorData.error || 'Failed to delete account');
+      if (res.ok) window.location.href = '/';
+      else {
+        const d = await res.json().catch(() => ({}));
+        setMessage({ type: 'error', text: d.error || 'Failed to delete account' });
       }
-    } catch (error) {
-      console.error('Error deleting account:', error);
-      setError('Failed to delete account');
     } finally {
       setDeleting(false);
     }
-  };
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center py-12">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-      </div>
-    );
   }
 
   return (
     <div className="space-y-8">
       <div>
-        <h2 className="text-xl font-semibold text-foreground">Privacy & Security</h2>
+        <h2 className="text-xl font-semibold text-foreground">Privacy</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Control who can see your information and contact you
+          Decide who sees you and how they can reach you.
         </p>
       </div>
 
-      <div className="space-y-6">
-        <div>
-          <label className="block text-sm font-medium text-foreground mb-3">
-            Profile visibility
-          </label>
-          <div className="flex flex-wrap gap-2">
-            {(['public', 'friends', 'private'] as const).map((vis) => (
-              <button
-                key={vis}
-                onClick={() => setPrivacy(prev => ({ ...prev, profileVisibility: vis }))}
-                className={`px-4 py-2 rounded-lg text-sm capitalize transition ${
-                  privacy.profileVisibility === vis
-                    ? 'bg-primary/10 text-primary border border-primary/20'
-                    : 'bg-card/30 border border-border/20 text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                {vis}
-              </button>
-            ))}
-          </div>
-          <p className="mt-2 text-xs text-muted-foreground">
-            Who can view your profile and activity
-          </p>
-        </div>
-
-        <div className="h-px bg-border/20" />
-
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <label htmlFor="online-status" className="block text-sm font-medium text-foreground">
-              Show online status
-            </label>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Let others see when you're online
-            </p>
-          </div>
-          <button
-            id="online-status"
-            role="switch"
-            aria-checked={privacy.showOnlineStatus}
-            onClick={() => setPrivacy(prev => ({ ...prev, showOnlineStatus: !prev.showOnlineStatus }))}
-            className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition ${
-              privacy.showOnlineStatus ? 'bg-primary' : 'bg-muted/30'
-            }`}
-          >
-            <span
-              className={`inline-block h-4 w-4 transform rounded-full bg-white transition ${
-                privacy.showOnlineStatus ? 'translate-x-6' : 'translate-x-1'
-              }`}
-            />
-          </button>
-        </div>
-
-        <div className="h-px bg-border/20" />
-
-        <div>
-          <label className="block text-sm font-medium text-foreground mb-3">
-            Who can send you DMs
-          </label>
-          <div className="flex flex-wrap gap-2">
-            {(['everyone', 'friends', 'nobody'] as const).map((perm) => (
-              <button
-                key={perm}
-                onClick={() => setPrivacy(prev => ({ ...prev, dmPermissions: perm }))}
-                className={`px-4 py-2 rounded-lg text-sm capitalize transition ${
-                  privacy.dmPermissions === perm
-                    ? 'bg-primary/10 text-primary border border-primary/20'
-                    : 'bg-card/30 border border-border/20 text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                {perm}
-              </button>
-            ))}
-          </div>
-          <p className="mt-2 text-xs text-muted-foreground">
-            Control who can start a direct message conversation with you
-          </p>
-        </div>
-
-        <div className="h-px bg-border/20" />
-
-        <div>
-          <h3 className="text-sm font-medium text-foreground mb-3">Data management</h3>
-          <div className="space-y-3">
-            <button 
-              onClick={downloadUserData}
-              disabled={downloading}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-card/30 border border-border/20 text-foreground hover:bg-card/50 transition w-full sm:w-auto disabled:opacity-50"
-            >
-              <Download className="h-4 w-4" />
-              <span className="text-sm">{downloading ? 'Preparing download...' : 'Download your data'}</span>
-            </button>
-            <p className="text-xs text-muted-foreground">
-              Request a copy of your personal data
-            </p>
-          </div>
-        </div>
-
-        <div className="h-px bg-border/20" />
-
-        <div>
-          <h3 className="text-sm font-medium text-foreground mb-3">Danger zone</h3>
-          {!showDeleteConfirm ? (
-            <button
-              onClick={() => setShowDeleteConfirm(true)}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-red-500/10 border border-red-500/20 text-red-500 hover:bg-red-500/20 transition"
-            >
-              <Trash2 className="h-4 w-4" />
-              <span className="text-sm">Delete account</span>
-            </button>
-          ) : (
-            <div className="rounded-lg border border-red-500/20 bg-red-500/5 p-4">
-              <p className="text-sm text-foreground mb-3">
-                Are you sure? This action cannot be undone. All your data will be permanently deleted.
-              </p>
-              <div className="flex gap-3">
-                <button
-                  onClick={() => setShowDeleteConfirm(false)}
-                  className="px-4 py-2 rounded-lg bg-card/30 border border-border/20 text-foreground hover:bg-card/50 transition text-sm"
-                >
-                  Cancel
-                </button>
-                <button 
-                  onClick={deleteAccount}
-                  disabled={deleting}
-                  className="px-4 py-2 rounded-lg bg-red-500 text-white hover:bg-red-600 transition text-sm disabled:opacity-50"
-                >
-                  {deleting ? 'Deleting...' : 'Permanently delete'}
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
+      <div>
+        <h3 className="text-sm font-medium text-foreground mb-3">Profile visibility</h3>
+        <SegmentedControl
+          ariaLabel="Profile visibility"
+          value={profileVisibility}
+          onChange={setProfileVisibility}
+          options={[
+            { value: 'public', label: 'Public', hint: 'Anyone can see your profile.' },
+            { value: 'friends', label: 'Friends', hint: 'Only mutual follows.' },
+            { value: 'private', label: 'Private', hint: 'Hidden from everyone.' },
+          ]}
+        />
       </div>
 
-      {/* Error/Success Messages */}
-      {error && (
-        <div className="rounded-lg border border-red-500/20 bg-red-500/5 p-4 flex items-center gap-2">
-          <X className="h-4 w-4 text-red-500" />
-          <span className="text-sm text-red-500">{error}</span>
-        </div>
-      )}
+      <div className="h-px bg-border/20" />
 
-      {saved && (
-        <div className="rounded-lg border border-green-500/20 bg-green-500/5 p-4 flex items-center gap-2">
-          <Check className="h-4 w-4 text-green-500" />
-          <span className="text-sm text-green-500">Settings saved successfully!</span>
-        </div>
-      )}
+      <div className="divide-y divide-border/10">
+        <ToggleRow
+          label="Show online status"
+          description="Others can see when you're online or away."
+          checked={showOnlineStatus}
+          onChange={setShowOnlineStatus}
+        />
+        <ToggleRow
+          label="Show email on profile"
+          description="Displays your email publicly. Off by default."
+          checked={showEmailOnProfile}
+          onChange={setShowEmailOnProfile}
+        />
+      </div>
 
-      <div className="pt-4">
-        <button 
-          onClick={savePrivacySettings}
-          disabled={saving}
+      <div className="h-px bg-border/20" />
+
+      <div>
+        <h3 className="text-sm font-medium text-foreground mb-3">Who can DM you</h3>
+        <SegmentedControl
+          ariaLabel="DM permissions"
+          value={dmPermissions}
+          onChange={setDmPermissions}
+          options={[
+            { value: 'everyone', label: 'Everyone' },
+            { value: 'friends', label: 'Friends only' },
+            { value: 'nobody', label: 'Nobody' },
+          ]}
+        />
+      </div>
+
+      <div className="flex items-center gap-3">
+        <button
+          onClick={save}
+          disabled={pending}
           className="px-6 py-2.5 rounded-lg bg-primary text-primary-foreground font-medium hover:opacity-90 transition disabled:opacity-50"
         >
-          {saving ? 'Saving...' : 'Save preferences'}
+          {pending ? 'Saving…' : 'Save preferences'}
         </button>
+        {message && (
+          <div role="status" aria-live="polite" className={`text-sm ${message.type === 'success' ? 'text-emerald-400' : 'text-red-400'}`}>
+            {message.text}
+          </div>
+        )}
+      </div>
+
+      <div className="h-px bg-border/20" />
+
+      <div>
+        <h3 className="text-sm font-medium text-foreground mb-3">Your data</h3>
+        <button
+          onClick={download}
+          disabled={downloading}
+          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-card/30 border border-border/20 text-foreground hover:bg-card/50 transition disabled:opacity-50"
+        >
+          <Download className="h-4 w-4" />
+          <span className="text-sm">{downloading ? 'Preparing…' : 'Download your data'}</span>
+        </button>
+        <p className="mt-2 text-xs text-muted-foreground">
+          A JSON export of your posts, comments, and settings.
+        </p>
+      </div>
+
+      <div>
+        <h3 className="text-sm font-medium text-red-400 mb-3">Danger zone</h3>
+        {!showDeleteConfirm ? (
+          <button
+            onClick={() => setShowDeleteConfirm(true)}
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20 transition"
+          >
+            <Trash2 className="h-4 w-4" />
+            <span className="text-sm">Delete account</span>
+          </button>
+        ) : (
+          <div className="rounded-lg border border-red-500/30 bg-red-500/5 p-4">
+            <p className="text-sm text-foreground mb-3">
+              This cannot be undone. All posts, comments, messages, and uploads will be
+              permanently removed.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowDeleteConfirm(false)}
+                className="px-4 py-2 rounded-lg bg-card/40 border border-border/20 text-foreground hover:bg-card/60 transition text-sm"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={deleteAccount}
+                disabled={deleting}
+                className="px-4 py-2 rounded-lg bg-red-500 text-white hover:bg-red-600 transition text-sm disabled:opacity-50"
+              >
+                {deleting ? 'Deleting…' : 'Permanently delete'}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
 }
-

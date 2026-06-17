@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { nanoid } from 'nanoid';
+import { addVideoRoomMember } from '@/lib/videoRooms';
 
 // In-memory storage for room codes (use Redis/database in production)
 const roomCodes = new Map<string, {
@@ -50,7 +51,8 @@ export async function POST(request: NextRequest) {
       createdAt: Date.now(),
     });
 
-    console.log('[Video Room] Created room:', { roomCode, roomName, creator: session.user.id });
+    // Authorize the creator for this room — the token route checks membership.
+    await addVideoRoomMember(roomName, session.user.id, 60 * 60);
 
     return NextResponse.json({
       roomCode,
@@ -94,11 +96,8 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Room has expired' }, { status: 404 });
     }
 
-    console.log('[Video Room] User joining room:', { 
-      code, 
-      roomName: room.roomName, 
-      userId: session.user.id 
-    });
+    // Resolving a valid room code authorizes this user for the room.
+    await addVideoRoomMember(room.roomName, session.user.id, 60 * 60);
 
     return NextResponse.json({
       roomCode: code,

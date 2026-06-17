@@ -11,6 +11,8 @@ import FloatingInput from "@/components/ui/FloatingInput";
 export default function SignInPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [totp, setTotp] = useState("");
+  const [needs2fa, setNeeds2fa] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const searchParams = useSearchParams();
@@ -25,12 +27,25 @@ export default function SignInPage() {
       const res = await signIn("credentials", {
         email,
         password,
+        totp: totp || undefined,
         redirect: false, // Don't let NextAuth handle redirect
         callbackUrl: callbackUrl,
       });
 
       if (res?.error) {
-        setError("Invalid credentials");
+        const err = res.error || "";
+        if (err.includes("2FA_REQUIRED")) {
+          setNeeds2fa(true);
+          setError("Enter the 6-digit code from your authenticator app (or a backup code).");
+        } else if (err.includes("2FA_RATE_LIMIT")) {
+          setNeeds2fa(true);
+          setError("Too many attempts. Please wait a minute and try again.");
+        } else if (err.includes("2FA_INVALID")) {
+          setNeeds2fa(true);
+          setError("Invalid authenticator code. Please try again.");
+        } else {
+          setError("Invalid credentials");
+        }
         console.error('Login error:', res.error);
       } else if (res?.ok) {
         // Manual redirect after successful login
@@ -104,6 +119,17 @@ export default function SignInPage() {
             required
             autoComplete="current-password"
           />
+          {needs2fa && (
+            <FloatingInput
+              id="totp"
+              name="totp"
+              type="text"
+              label="2FA code"
+              value={totp}
+              onChange={(e) => setTotp(e.target.value)}
+              autoComplete="one-time-code"
+            />
+          )}
           {error && <p className="text-sm text-red-300">{error}</p>}
           <button
             type="submit"

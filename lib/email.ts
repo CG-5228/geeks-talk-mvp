@@ -16,8 +16,8 @@ export async function sendEmail({ subject, html, to, from }: SendEmailParams): P
   const port = Number(process.env.SMTP_PORT || 587);
   const user = process.env.SMTP_USER;
   const pass = process.env.SMTP_PASS;
-  const fromAddr = sanitizeHeaderValue(from || process.env.EMAIL_FROM || 'no-reply@geekstalk.co');
-  const toAddr = sanitizeHeaderValue(to || process.env.EMAIL_TO || 'chris.g@geekstalk.co');
+  const fromAddr = sanitizeHeaderValue(from || process.env.EMAIL_FROM || 'no-reply@geekstalk.org');
+  const toAddr = sanitizeHeaderValue(to || process.env.EMAIL_TO || 'Chris.G@geekstalk.org');
   const safeSubject = sanitizeHeaderValue(subject).slice(0, 200);
 
   if (!host || !user || !pass) {

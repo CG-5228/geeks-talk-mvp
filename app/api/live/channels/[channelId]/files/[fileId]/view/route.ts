@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { getPresignedUrl } from '@/lib/s3';
+import { canAccessRoom, getAccessibleRoom } from '@/lib/live/access';
 
 export async function GET(
   request: NextRequest,
@@ -18,26 +19,13 @@ export async function GET(
     const { channelId, fileId } = params;
 
     // Check if user has access to this channel
-    const channel = await db.room.findUnique({
-      where: { id: channelId },
-      select: { 
-        id: true, 
-        visibility: true, 
-        participants: true,
-        ownerId: true 
-      },
-    });
+    const channel = await getAccessibleRoom(channelId);
 
     if (!channel) {
       return NextResponse.json({ error: 'Channel not found' }, { status: 404 });
     }
 
-    // Check if user can access this channel
-    const canAccess = channel.visibility === 'public' || 
-                     channel.participants.includes(session.user.id) ||
-                     channel.ownerId === session.user.id;
-
-    if (!canAccess) {
+    if (!canAccessRoom(channel, session.user.id)) {
       return NextResponse.json({ error: 'Access denied' }, { status: 403 });
     }
 
@@ -53,10 +41,26 @@ export async function GET(
       return NextResponse.json({ error: 'File not found' }, { status: 404 });
     }
 
-    // Generate presigned URL for viewing (longer expiry for images)
-    const viewUrl = await getPresignedUrl(file.s3Key, 3600 * 24); // 24 hours for viewing
+    // Only render a narrow allowlist of safe types inline. A stored fileType of
+    // text/html or image/svg+xml served inline would execute attacker-controlled
+    // markup in the viewer's browser (stored XSS); force everything else to
+    // download as an opaque octet-stream.
+    const SAFE_INLINE = new Set([
+      'image/png',
+      'image/jpeg',
+      'image/jpg',
+      'image/gif',
+      'image/webp',
+      'application/pdf',
+    ]);
+    const storedType = (file.fileType || '').toLowerCase();
+    const inlineOk = SAFE_INLINE.has(storedType);
+    const viewUrl = await getPresignedUrl(file.s3Key, 3600 * 24, {
+      inline: inlineOk,
+      contentType: inlineOk ? file.fileType : 'application/octet-stream',
+      fileName: file.fileName,
+    });
 
-    // Redirect to the presigned URL
     return NextResponse.redirect(viewUrl);
 
   } catch (error) {

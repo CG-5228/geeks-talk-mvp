@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { db } from '@/lib/db';
+import { aggregateReactionsByMessage } from '@/lib/reactions';
 
 // Helper function to create conversation ID from two user IDs
 function createConversationId(userId1: string, userId2: string): string {
@@ -75,6 +76,8 @@ export async function GET(req: Request, props: { params: Promise<{ conversationI
       orderBy: { createdAt: 'asc' }
     });
 
+    const reactionMap = await aggregateReactionsByMessage(messages.map((m) => m.id), 'dm');
+
     // Format messages
     const formattedMessages = messages.map((msg: any) => ({
       id: msg.id,
@@ -86,7 +89,8 @@ export async function GET(req: Request, props: { params: Promise<{ conversationI
       replyToId: msg.replyToId,
       replyTo: msg.replyTo,
       sender: msg.sender,
-      receiver: msg.receiver
+      receiver: msg.receiver,
+      reactions: reactionMap[msg.id] || [],
     }));
 
     return NextResponse.json({ messages: formattedMessages });

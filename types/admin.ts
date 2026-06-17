@@ -6,14 +6,21 @@ export interface BlogPost {
   coverImage: string | null;
   published: boolean;
   slug?: string;
+  tags?: string[];
+  featured?: boolean;
+  viewCount?: number;
+  readingTimeMinutes?: number;
   publishedAt?: string | null;
   createdAt?: string;
+  updatedAt?: string;
   author?: {
     name: string;
     email: string;
+    image?: string | null;
   };
   _count?: {
     comments: number;
+    reactions?: number;
   };
 }
 

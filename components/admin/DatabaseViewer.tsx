@@ -1,504 +1,1754 @@
 'use client';
-import { useState, useEffect } from 'react';
-import { Database, Table, Eye, Plus, Trash2, ChevronLeft, ChevronRight, X, Copy, Check } from 'lucide-react';
+
+import {
+  ChangeEvent,
+  KeyboardEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import { createPortal } from 'react-dom';
+import { useRouter, useSearchParams } from 'next/navigation';
+import {
+  AlertTriangle,
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
+  Columns3,
+  Copy,
+  Database,
+  Eye,
+  FileJson,
+  Keyboard,
+  Loader2,
+  Lock,
+  RefreshCw,
+  Search,
+  Shield,
+  Trash2,
+  X,
+} from 'lucide-react';
+
+import AdminHeader from '@/components/admin/AdminHeader';
+import BulkActionBar from '@/components/admin/BulkActionBar';
+import { useAdminToast } from '@/components/admin/AdminToast';
+import { downloadCSV } from '@/lib/csv';
+import {
+  DATABASE_PAGE_SIZES,
+  type DatabasePageSize,
+  type SchemaField,
+  copyToClipboard,
+  fieldBadge,
+  flattenForExport,
+  formatCell,
+  formatFull,
+  isValidPageSize,
+  valueBadge,
+} from '@/lib/databaseAdmin';
 
 interface TableInfo {
   name: string;
   displayName: string;
+  count: number;
+  writable: boolean;
 }
 
-interface Record {
-  [key: string]: any;
+interface TablesResponse {
+  tables: TableInfo[];
+  stats: { tables: number; totalRecords: number; writableTables: number };
 }
 
-interface DatabaseViewerProps {
-  className?: string;
+interface SchemaResponse {
+  table: string;
+  displayName: string;
+  writable: boolean;
+  fields: SchemaField[];
 }
 
-export default function DatabaseViewer({ className = '' }: DatabaseViewerProps) {
+interface RecordsResponse {
+  records: Record<string, unknown>[];
+  pagination: { page: number; limit: number; total: number; pages: number };
+  order: { field: string; dir: 'asc' | 'desc' };
+  search: { q: string; fields: string[] };
+  writable: boolean;
+}
+
+function useDebounced<T>(value: T, delayMs: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(value), delayMs);
+    return () => clearTimeout(t);
+  }, [value, delayMs]);
+  return debounced;
+}
+
+const COLUMN_PREFS_KEY = 'admin.db.columnPrefs.v1';
+
+function loadColumnPrefs(): Record<string, string[]> {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = window.localStorage.getItem(COLUMN_PREFS_KEY);
+    return raw ? (JSON.parse(raw) as Record<string, string[]>) : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveColumnPrefs(prefs: Record<string, string[]>): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(COLUMN_PREFS_KEY, JSON.stringify(prefs));
+  } catch {
+    /* ignore quota errors */
+  }
+}
+
+export default function DatabaseViewer() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const toast = useAdminToast();
+
+  const urlTable = searchParams.get('table') || '';
+  const urlQ = searchParams.get('q') || '';
+  const urlPage = parseInt(searchParams.get('page') || '1', 10);
+  const urlLimitRaw = parseInt(searchParams.get('limit') || '50', 10);
+  const urlLimit: DatabasePageSize = isValidPageSize(urlLimitRaw) ? urlLimitRaw : 50;
+  const urlOrderBy = searchParams.get('orderBy') || '';
+  const urlOrderDir: 'asc' | 'desc' = searchParams.get('orderDir') === 'asc' ? 'asc' : 'desc';
+  const urlRecordId = searchParams.get('record');
+
   const [tables, setTables] = useState<TableInfo[]>([]);
-  const [selectedTable, setSelectedTable] = useState<string>('');
-  const [records, setRecords] = useState<Record[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [currentPage, setCurrentPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
-  const [totalRecords, setTotalRecords] = useState(0);
-  const [selectedRecord, setSelectedRecord] = useState<Record | null>(null);
-  const [showRecordModal, setShowRecordModal] = useState(false);
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [recordToDelete, setRecordToDelete] = useState<{table: string, id: string} | null>(null);
-  const [copiedField, setCopiedField] = useState<string | null>(null);
-  
+  const [stats, setStats] = useState<TablesResponse['stats'] | null>(null);
+  const [tablesLoading, setTablesLoading] = useState(true);
+  const [tablesError, setTablesError] = useState<string | null>(null);
+  const [tableFilter, setTableFilter] = useState('');
+
+  const [selectedTable, setSelectedTable] = useState<string>(urlTable);
+  const [schema, setSchema] = useState<SchemaField[] | null>(null);
+  const [schemaLoading, setSchemaLoading] = useState(false);
+
+  const [searchText, setSearchText] = useState(urlQ);
+  const debouncedSearch = useDebounced(searchText, 300);
+
+  const [page, setPage] = useState(Number.isFinite(urlPage) && urlPage > 0 ? urlPage : 1);
+  const [pageSize, setPageSize] = useState<DatabasePageSize>(urlLimit);
+  const [orderBy, setOrderBy] = useState(urlOrderBy);
+  const [orderDir, setOrderDir] = useState<'asc' | 'desc'>(urlOrderDir);
+
+  const [records, setRecords] = useState<Record<string, unknown>[]>([]);
+  const [pagination, setPagination] = useState<RecordsResponse['pagination']>({
+    page: 1,
+    limit: pageSize,
+    total: 0,
+    pages: 1,
+  });
+  const [recordsLoading, setRecordsLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [recordsError, setRecordsError] = useState<string | null>(null);
+  const [writable, setWritable] = useState(false);
+
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [activeRecord, setActiveRecord] = useState<Record<string, unknown> | null>(null);
+
+  const [columnPrefs, setColumnPrefs] = useState<Record<string, string[]>>({});
+  const [columnPickerOpen, setColumnPickerOpen] = useState(false);
+  const [showShortcuts, setShowShortcuts] = useState(false);
+  const [pageJump, setPageJump] = useState('');
+
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
   useEffect(() => {
-    fetchTables();
+    setColumnPrefs(loadColumnPrefs());
   }, []);
-  
+
+  const fetchTables = useCallback(
+    async (opts?: { silent?: boolean }) => {
+      if (!opts?.silent) setTablesLoading(true);
+      setTablesError(null);
+      try {
+        const res = await fetch('/api/admin/db/tables', { cache: 'no-store' });
+        if (!res.ok) throw new Error(`Request failed (${res.status})`);
+        const data = (await res.json()) as TablesResponse;
+        setTables(data.tables);
+        setStats(data.stats);
+        if (!selectedTable && data.tables.length > 0) {
+          setSelectedTable(data.tables[0]!.name);
+        }
+      } catch (err) {
+        setTablesError(err instanceof Error ? err.message : 'Failed to load tables');
+      } finally {
+        setTablesLoading(false);
+      }
+    },
+    [selectedTable],
+  );
+
   useEffect(() => {
-    if (selectedTable) {
-      fetchRecords(selectedTable, currentPage);
+    void fetchTables();
+  }, [fetchTables]);
+
+  useEffect(() => {
+    if (!selectedTable) {
+      setSchema(null);
+      return;
     }
-  }, [selectedTable, currentPage]);
-  
-  const fetchTables = async () => {
-    try {
-      const response = await fetch('/api/admin/db/tables');
-      const data = await response.json();
-      setTables(data.tables);
-    } catch (error) {
-      console.error('Failed to fetch tables:', error);
-    }
-  };
-  
-  const fetchRecords = async (table: string, page: number) => {
-    setLoading(true);
-    try {
-      const response = await fetch(`/api/admin/db/${table}?page=${page}&limit=50`);
-      const data = await response.json();
-      
-      if (data.error) {
-        console.error('API Error:', data.error);
+    let cancelled = false;
+    (async () => {
+      setSchemaLoading(true);
+      try {
+        const res = await fetch(`/api/admin/db/${selectedTable}/schema`, { cache: 'no-store' });
+        if (!res.ok) throw new Error(`Request failed (${res.status})`);
+        const data = (await res.json()) as SchemaResponse;
+        if (!cancelled) setSchema(data.fields);
+      } catch {
+        if (!cancelled) setSchema(null);
+      } finally {
+        if (!cancelled) setSchemaLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedTable]);
+
+  const fetchRecords = useCallback(
+    async (opts?: { silent?: boolean }) => {
+      if (!selectedTable) return;
+      if (!opts?.silent) setRecordsLoading(true);
+      setRefreshing(true);
+      setRecordsError(null);
+      try {
+        const params = new URLSearchParams();
+        params.set('page', String(page));
+        params.set('limit', String(pageSize));
+        if (debouncedSearch.trim()) params.set('q', debouncedSearch.trim());
+        if (orderBy) params.set('orderBy', orderBy);
+        params.set('orderDir', orderDir);
+        const res = await fetch(`/api/admin/db/${selectedTable}?${params.toString()}`, {
+          cache: 'no-store',
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(body.error || `Request failed (${res.status})`);
+        }
+        const data = (await res.json()) as RecordsResponse;
+        setRecords(data.records || []);
+        setPagination(data.pagination);
+        setWritable(data.writable);
+      } catch (err) {
+        setRecordsError(err instanceof Error ? err.message : 'Failed to load records');
         setRecords([]);
-        setTotalPages(0);
-        setTotalRecords(0);
+      } finally {
+        setRecordsLoading(false);
+        setRefreshing(false);
+      }
+    },
+    [selectedTable, page, pageSize, debouncedSearch, orderBy, orderDir],
+  );
+
+  useEffect(() => {
+    void fetchRecords();
+  }, [fetchRecords]);
+
+  useEffect(() => {
+    const params = new URLSearchParams();
+    if (selectedTable) params.set('table', selectedTable);
+    if (debouncedSearch.trim()) params.set('q', debouncedSearch.trim());
+    if (page !== 1) params.set('page', String(page));
+    if (pageSize !== 50) params.set('limit', String(pageSize));
+    if (orderBy) params.set('orderBy', orderBy);
+    if (orderDir !== 'desc') params.set('orderDir', orderDir);
+    const qs = params.toString();
+    router.replace(qs ? `?${qs}` : '?', { scroll: false });
+  }, [selectedTable, debouncedSearch, page, pageSize, orderBy, orderDir, router]);
+
+  useEffect(() => {
+    if (!selectedTable || !urlRecordId || activeRecord) return;
+    const match = records.find((r) => (r as { id?: string }).id === urlRecordId);
+    if (match) setActiveRecord(match);
+  }, [records, selectedTable, urlRecordId, activeRecord]);
+
+  useEffect(() => {
+    setSelectedIds(new Set());
+  }, [selectedTable, page, pageSize]);
+
+  const selectedTableInfo = useMemo(
+    () => tables.find((t) => t.name === selectedTable) ?? null,
+    [tables, selectedTable],
+  );
+
+  const filteredTables = useMemo(() => {
+    const q = tableFilter.trim().toLowerCase();
+    if (!q) return tables;
+    return tables.filter(
+      (t) => t.name.toLowerCase().includes(q) || t.displayName.toLowerCase().includes(q),
+    );
+  }, [tables, tableFilter]);
+
+  const allColumns = useMemo(() => {
+    if (schema) {
+      return schema.filter((f) => f.kind === 'scalar' || f.kind === 'enum').map((f) => f.name);
+    }
+    return records[0] ? Object.keys(records[0]) : [];
+  }, [schema, records]);
+
+  const visibleColumns = useMemo(() => {
+    const prefs = columnPrefs[selectedTable];
+    if (prefs && prefs.length > 0) return prefs.filter((c) => allColumns.includes(c));
+    return allColumns.slice(0, Math.min(allColumns.length, 8));
+  }, [columnPrefs, selectedTable, allColumns]);
+
+  const updateVisibleColumns = useCallback(
+    (cols: string[]) => {
+      setColumnPrefs((prev) => {
+        const next = { ...prev, [selectedTable]: cols };
+        saveColumnPrefs(next);
+        return next;
+      });
+    },
+    [selectedTable],
+  );
+
+  const resetColumns = useCallback(() => {
+    setColumnPrefs((prev) => {
+      const next = { ...prev };
+      delete next[selectedTable];
+      saveColumnPrefs(next);
+      return next;
+    });
+  }, [selectedTable]);
+
+  const toggleColumn = useCallback(
+    (col: string) => {
+      const cur = visibleColumns;
+      if (cur.includes(col)) updateVisibleColumns(cur.filter((c) => c !== col));
+      else updateVisibleColumns([...cur, col]);
+    },
+    [visibleColumns, updateVisibleColumns],
+  );
+
+  const toggleSort = useCallback(
+    (col: string) => {
+      if (orderBy === col) {
+        setOrderDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+      } else {
+        setOrderBy(col);
+        setOrderDir('desc');
+      }
+      setPage(1);
+    },
+    [orderBy],
+  );
+
+  const schemaByName = useMemo(() => {
+    const map = new Map<string, SchemaField>();
+    schema?.forEach((f) => map.set(f.name, f));
+    return map;
+  }, [schema]);
+
+  const handleRowCopyId = useCallback(
+    async (id: unknown) => {
+      if (typeof id !== 'string') return;
+      const ok = await copyToClipboard(id);
+      toast.push({
+        title: ok ? 'ID copied' : 'Copy failed',
+        description: ok ? id : 'Clipboard unavailable',
+        tone: ok ? 'success' : 'error',
+      });
+    },
+    [toast],
+  );
+
+  const handleDelete = useCallback(
+    async (ids: string[]) => {
+      if (!selectedTable || !writable || ids.length === 0) return;
+      const ok = await toast.confirm({
+        title: `Delete ${ids.length} record${ids.length === 1 ? '' : 's'}?`,
+        description: `This will permanently remove ${ids.length === 1 ? 'this row' : 'these rows'} from ${selectedTableInfo?.displayName ?? selectedTable}. This cannot be undone.`,
+        confirmLabel: 'Delete',
+        tone: 'danger',
+      });
+      if (!ok) return;
+
+      try {
+        const res = await fetch(`/api/admin/db/${selectedTable}`, {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(ids.length === 1 ? { id: ids[0] } : { ids }),
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(body.error || `Request failed (${res.status})`);
+        }
+        toast.push({
+          title: body.message || 'Deleted',
+          tone: body.failed > 0 ? 'warning' : 'success',
+        });
+        setActiveRecord(null);
+        setSelectedIds(new Set());
+        void fetchRecords({ silent: true });
+        void fetchTables({ silent: true });
+      } catch (err) {
+        toast.push({
+          title: 'Delete failed',
+          description: err instanceof Error ? err.message : 'Unknown error',
+          tone: 'error',
+        });
+      }
+    },
+    [selectedTable, writable, selectedTableInfo, toast, fetchRecords, fetchTables],
+  );
+
+  const handleExport = useCallback(() => {
+    if (records.length === 0) {
+      toast.push({ title: 'Nothing to export', tone: 'info' });
+      return;
+    }
+    const source =
+      selectedIds.size > 0
+        ? records.filter((r) => {
+            const id = (r as { id?: string }).id;
+            return typeof id === 'string' && selectedIds.has(id);
+          })
+        : records;
+    if (source.length === 0) {
+      toast.push({ title: 'Nothing to export', tone: 'info' });
+      return;
+    }
+    const rows = source.map((r) => flattenForExport(r));
+    const stamp = new Date().toISOString().slice(0, 10);
+    downloadCSV(`${selectedTable}-${stamp}`, rows);
+    toast.push({
+      title: `Exported ${rows.length} row${rows.length === 1 ? '' : 's'}`,
+      tone: 'success',
+    });
+  }, [records, selectedIds, selectedTable, toast]);
+
+  const moveSelection = useCallback(
+    (delta: 1 | -1) => {
+      if (records.length === 0) return;
+      const ids = records
+        .map((r) => (r as { id?: string }).id)
+        .filter((v): v is string => typeof v === 'string');
+      if (ids.length === 0) return;
+      const currentId =
+        activeRecord && typeof activeRecord.id === 'string' ? (activeRecord.id as string) : null;
+      const idx = currentId ? ids.indexOf(currentId) : -1;
+      const nextIdx = idx < 0 ? 0 : Math.min(ids.length - 1, Math.max(0, idx + delta));
+      const next = records.find((r) => (r as { id?: string }).id === ids[nextIdx]);
+      if (next) setActiveRecord(next);
+    },
+    [records, activeRecord],
+  );
+
+  useEffect(() => {
+    const isInInput = (el: EventTarget | null): boolean => {
+      if (!(el instanceof HTMLElement)) return false;
+      const tag = el.tagName;
+      return tag === 'INPUT' || tag === 'TEXTAREA' || el.isContentEditable;
+    };
+
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === '/' && !isInInput(e.target)) {
+        e.preventDefault();
+        searchInputRef.current?.focus();
         return;
       }
-      
-      setRecords(data.records || []);
-      setTotalPages(data.pagination?.pages || 0);
-      setTotalRecords(data.pagination?.total || 0);
-    } catch (error) {
-      console.error('Failed to fetch records:', error);
-      setRecords([]);
-      setTotalPages(0);
-      setTotalRecords(0);
-    } finally {
-      setLoading(false);
-    }
-  };
-  
-  const handleViewRecord = (record: Record) => {
-    setSelectedRecord(record);
-    setShowRecordModal(true);
-  };
-
-  const handleDeleteRecord = async (table: string, recordId: string) => {
-    try {
-      const response = await fetch(`/api/admin/db/${table}`, {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: recordId })
-      });
-      
-      if (response.ok) {
-        // Show success message
-        alert('Record deleted successfully!');
-        fetchRecords(table, currentPage);
-        setShowDeleteConfirm(false);
-        setRecordToDelete(null);
-        if (showRecordModal) {
-          setShowRecordModal(false);
+      if (e.key === 'Escape') {
+        if (activeRecord) {
+          setActiveRecord(null);
+          return;
         }
-      } else {
-        const errorData = await response.json();
-        alert(`Failed to delete record: ${errorData.error || 'Unknown error'}`);
+        if (columnPickerOpen) {
+          setColumnPickerOpen(false);
+          return;
+        }
+        if (showShortcuts) {
+          setShowShortcuts(false);
+          return;
+        }
       }
-    } catch (error) {
-      console.error('Failed to delete record:', error);
-      alert('Failed to delete record. Please try again.');
+      if (isInInput(e.target)) return;
+      if (e.key === 'j') {
+        e.preventDefault();
+        moveSelection(1);
+      } else if (e.key === 'k') {
+        e.preventDefault();
+        moveSelection(-1);
+      } else if (e.key === 'r') {
+        e.preventDefault();
+        void fetchRecords({ silent: true });
+      } else if (e.key === '?') {
+        e.preventDefault();
+        setShowShortcuts((v) => !v);
+      }
+    };
+    window.addEventListener('keydown', onKey as unknown as EventListener);
+    return () => window.removeEventListener('keydown', onKey as unknown as EventListener);
+  }, [activeRecord, columnPickerOpen, showShortcuts, fetchRecords, moveSelection]);
+
+  const pageIds = useMemo(
+    () =>
+      records
+        .map((r) => (r as { id?: string }).id)
+        .filter((v): v is string => typeof v === 'string'),
+    [records],
+  );
+  const allOnPageSelected = pageIds.length > 0 && pageIds.every((id) => selectedIds.has(id));
+  const someOnPageSelected = pageIds.some((id) => selectedIds.has(id));
+
+  const togglePageSelection = () => {
+    if (allOnPageSelected) {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        pageIds.forEach((id) => next.delete(id));
+        return next;
+      });
+    } else {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        pageIds.forEach((id) => next.add(id));
+        return next;
+      });
     }
   };
 
-  const confirmDelete = (table: string, id: string) => {
-    setRecordToDelete({ table, id });
-    setShowDeleteConfirm(true);
+  const toggleRowSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   };
 
-  const copyToClipboard = async (text: string, fieldName: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopiedField(fieldName);
-      setTimeout(() => setCopiedField(null), 2000);
-    } catch (error) {
-      console.error('Failed to copy to clipboard:', error);
+  const handlePageJump = () => {
+    const n = parseInt(pageJump, 10);
+    if (Number.isFinite(n) && n >= 1 && n <= pagination.pages) {
+      setPage(n);
     }
+    setPageJump('');
   };
-  
-  const formatValue = (value: any): string => {
-    if (value === null || value === undefined) {
-      return 'null';
-    }
-    if (typeof value === 'object') {
-      return JSON.stringify(value);
-    }
-    if (typeof value === 'boolean') {
-      return value.toString();
-    }
-    if (typeof value === 'string' && value.length > 100) {
-      return value.substring(0, 100) + '...';
-    }
-    return value.toString();
-  };
-  
-  const getColumnType = (value: any): string => {
-    if (value === null || value === undefined) return 'null';
-    if (typeof value === 'boolean') return 'boolean';
-    if (typeof value === 'number') return 'number';
-    if (typeof value === 'string') {
-      if (value.match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/)) return 'datetime';
-      if (value.match(/^\d{4}-\d{2}-\d{2}$/)) return 'date';
-      return 'string';
-    }
-    if (typeof value === 'object') return 'json';
-    return 'unknown';
-  };
-  
-  const getTypeColor = (type: string): string => {
-    switch (type) {
-      case 'string': return 'text-green-400';
-      case 'number': return 'text-blue-400';
-      case 'boolean': return 'text-yellow-400';
-      case 'datetime': return 'text-purple-400';
-      case 'date': return 'text-purple-400';
-      case 'json': return 'text-orange-400';
-      case 'null': return 'text-white/50';
-      default: return 'text-white/70';
-    }
-  };
-  
-  if (tables.length === 0) {
-    return (
-      <div className={`bg-[#1a1b23] border border-white/20 rounded-lg p-6 ${className}`}>
-        <div className="text-center py-12">
-          <Database className="h-16 w-16 text-white/30 mx-auto mb-4" />
-          <h3 className="text-xl font-semibold text-white mb-2">No tables found</h3>
-          <p className="text-white/70">Unable to load database tables.</p>
-        </div>
-      </div>
-    );
-  }
-  
+
+  const statsMeta = stats ? (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+      <span>
+        <span className="font-semibold text-foreground tabular-nums">{stats.tables}</span> tables
+      </span>
+      <span>
+        <span className="font-semibold text-foreground tabular-nums">
+          {stats.totalRecords.toLocaleString()}
+        </span>{' '}
+        records
+      </span>
+      <span>
+        <span className="font-semibold text-foreground tabular-nums">{stats.writableTables}</span>{' '}
+        writable
+      </span>
+    </div>
+  ) : null;
+
   return (
-    <div className={`bg-[#1a1b23] border border-white/20 rounded-lg p-6 ${className}`}>
-      <div className="flex items-center justify-between mb-6">
-        <h2 className="text-xl font-semibold text-white">Database Viewer</h2>
-        <div className="flex items-center gap-2">
-          <Database className="h-5 w-5 text-white/70" />
-          <span className="text-white/70 text-sm">Prisma Studio-like Interface</span>
-        </div>
-      </div>
-      
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-        {/* Tables Sidebar */}
-        <div className="lg:col-span-1">
-          <h3 className="text-lg font-medium text-white mb-4">Tables</h3>
-          <div className="space-y-2">
-            {tables.map((table) => (
-              <button
-                key={table.name}
-                onClick={() => {
-                  setSelectedTable(table.name);
-                  setCurrentPage(1);
-                }}
-                className={`w-full text-left p-3 rounded-lg border transition-colors ${
-                  selectedTable === table.name
-                    ? 'bg-[#00d9ff]/20 border-[#00d9ff]/30 text-[#00d9ff]'
-                    : 'bg-white/5 border-white/20 text-white/70 hover:bg-white/10'
-                }`}
-              >
-                <div className="flex items-center gap-2">
-                  <Table className="h-4 w-4" />
-                  <span className="font-medium">{table.displayName}</span>
-                </div>
-                <div className="text-xs text-white/50 mt-1">{table.name}</div>
-              </button>
-            ))}
+    <div className="flex min-h-dvh flex-col bg-background p-6">
+      <AdminHeader
+        title="Database"
+        description="Browse, search, and manage rows across every Prisma model."
+        icon={Database}
+        iconTone="primary"
+        meta={statsMeta}
+        actions={
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowShortcuts(true)}
+              className="inline-flex items-center gap-1.5 rounded-md border border-white/10 bg-white/5 px-2.5 py-1.5 text-xs text-muted-foreground transition hover:bg-white/10 hover:text-foreground"
+              aria-label="Show keyboard shortcuts"
+            >
+              <Keyboard className="h-3.5 w-3.5" />
+              Shortcuts
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                void fetchRecords({ silent: true });
+                void fetchTables({ silent: true });
+              }}
+              disabled={refreshing || recordsLoading}
+              className="inline-flex items-center gap-1.5 rounded-md border border-white/10 bg-white/5 px-2.5 py-1.5 text-xs text-muted-foreground transition hover:bg-white/10 hover:text-foreground disabled:opacity-50"
+              aria-label="Refresh"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} />
+              Refresh
+            </button>
           </div>
-        </div>
-        
-        {/* Records Table */}
-        <div className="lg:col-span-3">
+        }
+      />
+
+      <div className="grid flex-1 min-h-0 grid-cols-1 gap-4 lg:grid-cols-[280px_1fr]">
+        <TableSidebar
+          tables={filteredTables}
+          allTables={tables}
+          loading={tablesLoading}
+          error={tablesError}
+          selectedTable={selectedTable}
+          filter={tableFilter}
+          onFilterChange={setTableFilter}
+          onSelect={(name) => {
+            setSelectedTable(name);
+            setPage(1);
+            setOrderBy('');
+            setOrderDir('desc');
+            setSearchText('');
+          }}
+          onRetry={() => void fetchTables()}
+        />
+
+        <section className="flex min-w-0 flex-col overflow-hidden rounded-lg border border-white/10 bg-[#16181d]">
           {selectedTable ? (
-            <div>
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-medium text-white">
-                  {tables.find(t => t.name === selectedTable)?.displayName} Records
-                </h3>
-                <div className="text-sm text-white/70">
-                  {totalRecords} total records
-                </div>
-              </div>
-              
-              {loading ? (
-                <div className="animate-pulse">
-                  <div className="h-4 bg-white/20 rounded w-1/4 mb-4"></div>
-                  <div className="space-y-3">
-                    {[...Array(5)].map((_, i) => (
-                      <div key={i} className="h-12 bg-white/10 rounded"></div>
-                    ))}
-                  </div>
-                </div>
-              ) : records.length > 0 ? (
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead>
-                      <tr className="border-b border-white/20">
-                        {Object.keys(records[0]).map((key) => (
-                          <th key={key} className="text-left py-3 px-4 text-white/70 font-medium">
-                            {key}
-                          </th>
-                        ))}
-                        <th className="text-left py-3 px-4 text-white/70 font-medium">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {records.map((record, index) => (
-                        <tr key={index} className="border-b border-white/10 hover:bg-white/5">
-                          {Object.entries(record).map(([key, value]) => (
-                            <td key={key} className="py-3 px-4">
-                              <div className="flex items-center gap-2">
-                                <span className={`text-xs px-2 py-1 rounded ${getTypeColor(getColumnType(value))} bg-white/10`}>
-                                  {getColumnType(value)}
-                                </span>
-                                <span className="text-white text-sm">
-                                  {formatValue(value)}
-                                </span>
-                              </div>
-                            </td>
-                          ))}
-                          <td className="py-3 px-4">
-                            <div className="flex items-center gap-2">
-                              <button
-                                onClick={() => handleViewRecord(record)}
-                                className="p-1 text-blue-400 hover:bg-blue-500/20 rounded transition-colors"
-                                title="View details"
-                              >
-                                <Eye className="h-4 w-4" />
-                              </button>
-                              <button
-                                onClick={() => confirmDelete(selectedTable, record.id)}
-                                className="p-1 text-red-400 hover:bg-red-500/20 rounded transition-colors"
-                                title="Delete record"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  
-                  {/* Pagination */}
-                  {totalPages > 1 && (
-                    <div className="flex items-center justify-between mt-6">
-                      <div className="text-sm text-white/70">
-                        Page {currentPage} of {totalPages}
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                          disabled={currentPage === 1}
-                          className="p-2 text-white/70 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                        >
-                          <ChevronLeft className="h-4 w-4" />
-                        </button>
-                        <button
-                          onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-                          disabled={currentPage === totalPages}
-                          className="p-2 text-white/70 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                        >
-                          <ChevronRight className="h-4 w-4" />
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div className="text-center py-12">
-                  <Table className="h-16 w-16 text-white/30 mx-auto mb-4" />
-                  <h3 className="text-xl font-semibold text-white mb-2">No records found</h3>
-                  <p className="text-white/70">This table appears to be empty.</p>
-                </div>
+            <>
+              <Toolbar
+                displayName={selectedTableInfo?.displayName ?? selectedTable}
+                writable={writable}
+                searchText={searchText}
+                onSearchChange={(v) => {
+                  setSearchText(v);
+                  setPage(1);
+                }}
+                searchInputRef={searchInputRef}
+                pageSize={pageSize}
+                onPageSizeChange={(n) => {
+                  setPageSize(n);
+                  setPage(1);
+                }}
+                columnPickerOpen={columnPickerOpen}
+                onToggleColumnPicker={() => setColumnPickerOpen((v) => !v)}
+                onExport={handleExport}
+                recordCount={records.length}
+                selectedCount={selectedIds.size}
+                totalCount={pagination.total}
+                refreshing={refreshing}
+              />
+
+              {columnPickerOpen && (
+                <ColumnPicker
+                  columns={allColumns}
+                  visible={visibleColumns}
+                  onToggle={toggleColumn}
+                  onReset={resetColumns}
+                  onClose={() => setColumnPickerOpen(false)}
+                />
               )}
+
+              <div className="flex-1 min-h-0 overflow-auto">
+                {recordsLoading ? (
+                  <TableSkeleton columns={Math.max(3, visibleColumns.length)} />
+                ) : recordsError ? (
+                  <ErrorPanel
+                    message={recordsError}
+                    onRetry={() => void fetchRecords()}
+                  />
+                ) : records.length === 0 ? (
+                  <EmptyState
+                    hasSearch={debouncedSearch.trim().length > 0}
+                    onClearSearch={() => setSearchText('')}
+                  />
+                ) : (
+                  <DataTable
+                    records={records}
+                    columns={visibleColumns}
+                    orderBy={orderBy}
+                    orderDir={orderDir}
+                    onToggleSort={toggleSort}
+                    activeRecordId={
+                      activeRecord && typeof activeRecord.id === 'string'
+                        ? (activeRecord.id as string)
+                        : null
+                    }
+                    selectedIds={selectedIds}
+                    onRowClick={(r) => setActiveRecord(r)}
+                    onRowSelect={toggleRowSelect}
+                    onAllSelect={togglePageSelection}
+                    allPageSelected={allOnPageSelected}
+                    somePageSelected={someOnPageSelected}
+                    onCopyId={handleRowCopyId}
+                    onDelete={(id) => void handleDelete([id])}
+                    writable={writable}
+                    schemaByName={schemaByName}
+                  />
+                )}
+              </div>
+
+              <Pagination
+                page={pagination.page}
+                pages={pagination.pages}
+                total={pagination.total}
+                limit={pagination.limit}
+                onFirst={() => setPage(1)}
+                onPrev={() => setPage((p) => Math.max(1, p - 1))}
+                onNext={() => setPage((p) => Math.min(pagination.pages, p + 1))}
+                onLast={() => setPage(pagination.pages)}
+                pageJump={pageJump}
+                onPageJumpChange={setPageJump}
+                onPageJumpSubmit={handlePageJump}
+                searchFields={debouncedSearch.trim() ? schema?.filter((f) => f.type === 'String' && !f.isList).map((f) => f.name) ?? [] : []}
+                orderBy={orderBy}
+                orderDir={orderDir}
+              />
+            </>
+          ) : tablesLoading ? (
+            <div className="flex h-full items-center justify-center">
+              <Loader2 className="h-5 w-5 animate-spin text-primary" />
             </div>
           ) : (
-            <div className="text-center py-12">
-              <Table className="h-16 w-16 text-white/30 mx-auto mb-4" />
-              <h3 className="text-xl font-semibold text-white mb-2">Select a table</h3>
-              <p className="text-white/70">Choose a table from the sidebar to view its records.</p>
+            <div className="flex h-full items-center justify-center p-8 text-center">
+              <div>
+                <Database className="mx-auto mb-2 h-8 w-8 text-muted-foreground" />
+                <p className="text-sm text-muted-foreground">Select a table to begin</p>
+              </div>
             </div>
           )}
+        </section>
+      </div>
+
+      {selectedIds.size > 0 && (
+        <BulkActionBar
+          count={selectedIds.size}
+          onClear={() => setSelectedIds(new Set())}
+          actions={[
+            {
+              label: 'Export selected',
+              icon: FileJson,
+              tone: 'neutral',
+              onClick: handleExport,
+            },
+            ...(writable
+              ? [
+                  {
+                    label: 'Delete selected',
+                    icon: Trash2,
+                    tone: 'error' as const,
+                    onClick: () => handleDelete(Array.from(selectedIds)),
+                  },
+                ]
+              : []),
+          ]}
+        />
+      )}
+
+      {activeRecord && (
+        <RecordDetailModal
+          tableName={selectedTable}
+          tableDisplayName={selectedTableInfo?.displayName ?? selectedTable}
+          record={activeRecord}
+          schemaByName={schemaByName}
+          writable={writable}
+          onClose={() => setActiveRecord(null)}
+          onDelete={(id) => void handleDelete([id])}
+        />
+      )}
+
+      {showShortcuts && <ShortcutsDialog onClose={() => setShowShortcuts(false)} />}
+    </div>
+  );
+}
+
+/* ----------------------------- Sidebar ---------------------------------- */
+
+interface TableSidebarProps {
+  tables: TableInfo[];
+  allTables: TableInfo[];
+  loading: boolean;
+  error: string | null;
+  selectedTable: string;
+  filter: string;
+  onFilterChange: (v: string) => void;
+  onSelect: (name: string) => void;
+  onRetry: () => void;
+}
+
+function TableSidebar({
+  tables,
+  allTables,
+  loading,
+  error,
+  selectedTable,
+  filter,
+  onFilterChange,
+  onSelect,
+  onRetry,
+}: TableSidebarProps) {
+  return (
+    <aside className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-white/10 bg-[#16181d]">
+      <div className="border-b border-white/10 p-2">
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+          <input
+            type="search"
+            value={filter}
+            onChange={(e: ChangeEvent<HTMLInputElement>) => onFilterChange(e.target.value)}
+            placeholder="Filter tables…"
+            aria-label="Filter tables"
+            className="w-full rounded-md border border-white/10 bg-[#1a1b23] py-1.5 pl-7 pr-2 text-sm text-foreground placeholder:text-muted-foreground/70 focus:border-primary/40 focus:outline-none focus:ring-1 focus:ring-primary/20"
+          />
         </div>
       </div>
 
-      {/* Record Details Modal */}
-      {showRecordModal && selectedRecord && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-gradient-to-br from-[#1a1b23] to-[#0f1014] border border-white/20 rounded-2xl w-full max-w-5xl max-h-[90vh] overflow-hidden shadow-2xl">
-            {/* Header */}
-            <div className="p-6 border-b border-white/20 bg-gradient-to-r from-[#1a1b23] to-[#0f1014]">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-2xl font-bold text-white flex items-center gap-3">
-                    <div className="w-8 h-8 bg-gradient-to-br from-[#00d9ff] to-[#0099cc] rounded-lg flex items-center justify-center">
-                      <Eye className="h-4 w-4 text-white" />
-                    </div>
-                    Record Details
-                  </h3>
-                  <p className="text-white/70 text-sm mt-2 flex items-center gap-2">
-                    <span className="px-2 py-1 bg-white/10 rounded-lg text-xs font-medium">
-                      {tables.find(t => t.name === selectedTable)?.displayName}
+      <div className="flex-1 overflow-y-auto p-1">
+        {loading ? (
+          <div className="space-y-1 p-2">
+            {Array.from({ length: 10 }).map((_, i) => (
+              <div key={i} className="h-9 animate-pulse rounded-md bg-white/5" />
+            ))}
+          </div>
+        ) : error ? (
+          <div className="p-3 text-center">
+            <AlertTriangle className="mx-auto mb-2 h-4 w-4 text-red-300" />
+            <p className="text-xs text-red-300">{error}</p>
+            <button
+              type="button"
+              onClick={onRetry}
+              className="mt-2 inline-flex items-center gap-1 rounded border border-white/10 bg-white/5 px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground"
+            >
+              <RefreshCw className="h-3 w-3" />
+              Retry
+            </button>
+          </div>
+        ) : tables.length === 0 ? (
+          <p className="p-3 text-center text-xs text-muted-foreground">
+            No tables match &quot;{filter}&quot;
+          </p>
+        ) : (
+          <ul className="space-y-0.5">
+            {tables.map((t) => {
+              const active = t.name === selectedTable;
+              return (
+                <li key={t.name}>
+                  <button
+                    type="button"
+                    onClick={() => onSelect(t.name)}
+                    className={`group flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-sm transition ${
+                      active
+                        ? 'bg-primary/15 text-primary'
+                        : 'text-muted-foreground hover:bg-white/5 hover:text-foreground'
+                    }`}
+                    aria-current={active ? 'true' : undefined}
+                  >
+                    <span className="flex min-w-0 items-center gap-1.5">
+                      {t.writable ? (
+                        <span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-400" aria-hidden="true" />
+                      ) : (
+                        <Lock className="h-3 w-3 shrink-0 text-muted-foreground/60" aria-hidden="true" />
+                      )}
+                      <span className="truncate">{t.displayName}</span>
                     </span>
-                    <span className="text-white/50">•</span>
-                    <span className="font-mono text-[#00d9ff]">ID: {selectedRecord.id}</span>
-                  </p>
-                </div>
+                    <span
+                      className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium tabular-nums ${
+                        active ? 'bg-primary/20 text-primary' : 'bg-white/5 text-muted-foreground'
+                      }`}
+                    >
+                      {t.count.toLocaleString()}
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+
+      {!loading && !error && allTables.length > 0 && (
+        <div className="border-t border-white/10 px-3 py-2 text-[10px] text-muted-foreground">
+          Showing {tables.length} of {allTables.length}
+        </div>
+      )}
+    </aside>
+  );
+}
+
+/* ------------------------------ Toolbar --------------------------------- */
+
+interface ToolbarProps {
+  displayName: string;
+  writable: boolean;
+  searchText: string;
+  onSearchChange: (v: string) => void;
+  searchInputRef: React.RefObject<HTMLInputElement>;
+  pageSize: DatabasePageSize;
+  onPageSizeChange: (n: DatabasePageSize) => void;
+  columnPickerOpen: boolean;
+  onToggleColumnPicker: () => void;
+  onExport: () => void;
+  recordCount: number;
+  selectedCount: number;
+  totalCount: number;
+  refreshing: boolean;
+}
+
+function Toolbar({
+  displayName,
+  writable,
+  searchText,
+  onSearchChange,
+  searchInputRef,
+  pageSize,
+  onPageSizeChange,
+  columnPickerOpen,
+  onToggleColumnPicker,
+  onExport,
+  recordCount,
+  selectedCount,
+  totalCount,
+  refreshing,
+}: ToolbarProps) {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 bg-[#14161b] px-3 py-2">
+      <div className="flex min-w-0 items-center gap-2">
+        <h2 className="truncate text-sm font-semibold text-foreground">{displayName}</h2>
+        <span
+          className={`inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] font-medium ${
+            writable
+              ? 'border-amber-500/25 bg-amber-500/10 text-amber-300'
+              : 'border-white/10 bg-white/5 text-muted-foreground'
+          }`}
+        >
+          {writable ? (
+            <>
+              <Shield className="h-2.5 w-2.5" /> Writable
+            </>
+          ) : (
+            <>
+              <Lock className="h-2.5 w-2.5" /> Read-only
+            </>
+          )}
+        </span>
+        <span className="hidden text-[11px] text-muted-foreground sm:inline">·</span>
+        <span className="hidden text-[11px] text-muted-foreground sm:inline tabular-nums">
+          {selectedCount > 0 && `${selectedCount} selected · `}
+          {recordCount} of {totalCount.toLocaleString()}
+          {refreshing && <Loader2 className="ml-1 inline h-2.5 w-2.5 animate-spin" />}
+        </span>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-1.5">
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+          <input
+            ref={searchInputRef}
+            type="search"
+            value={searchText}
+            onChange={(e: ChangeEvent<HTMLInputElement>) => onSearchChange(e.target.value)}
+            placeholder="Search… (/)"
+            aria-label="Search records"
+            className="w-44 rounded-md border border-white/10 bg-[#1a1b23] py-1.5 pl-7 pr-2 text-sm text-foreground placeholder:text-muted-foreground/70 focus:border-primary/40 focus:outline-none focus:ring-1 focus:ring-primary/20"
+          />
+        </div>
+
+        <div className="inline-flex items-center gap-1 rounded-md border border-white/10 bg-white/5 px-2 py-1.5 text-xs text-muted-foreground">
+          <span>Rows:</span>
+          <select
+            value={pageSize}
+            onChange={(e) => onPageSizeChange(parseInt(e.target.value, 10) as DatabasePageSize)}
+            className="bg-transparent text-foreground focus:outline-none"
+            aria-label="Rows per page"
+          >
+            {DATABASE_PAGE_SIZES.map((n) => (
+              <option key={n} value={n} className="bg-[#1a1b23]">
+                {n}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <button
+          type="button"
+          onClick={onToggleColumnPicker}
+          className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-1.5 text-xs transition ${
+            columnPickerOpen
+              ? 'border-primary/30 bg-primary/10 text-primary'
+              : 'border-white/10 bg-white/5 text-muted-foreground hover:bg-white/10 hover:text-foreground'
+          }`}
+          aria-expanded={columnPickerOpen}
+        >
+          <Columns3 className="h-3.5 w-3.5" />
+          Columns
+        </button>
+
+        <button
+          type="button"
+          onClick={onExport}
+          disabled={recordCount === 0}
+          className="inline-flex items-center gap-1.5 rounded-md border border-white/10 bg-white/5 px-2 py-1.5 text-xs text-muted-foreground transition hover:bg-white/10 hover:text-foreground disabled:opacity-50"
+        >
+          <FileJson className="h-3.5 w-3.5" />
+          Export CSV
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------------------- Column picker ---------------------------- */
+
+interface ColumnPickerProps {
+  columns: string[];
+  visible: string[];
+  onToggle: (col: string) => void;
+  onReset: () => void;
+  onClose: () => void;
+}
+
+function ColumnPicker({ columns, visible, onToggle, onReset, onClose }: ColumnPickerProps) {
+  return (
+    <div className="border-b border-white/10 bg-[#14161b] p-3">
+      <div className="mb-2 flex items-center justify-between">
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+          Visible columns · {visible.length} of {columns.length}
+        </span>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onReset}
+            className="text-[11px] text-muted-foreground transition hover:text-foreground"
+          >
+            Reset
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close column picker"
+            className="text-muted-foreground transition hover:text-foreground"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {columns.map((col) => {
+          const active = visible.includes(col);
+          return (
+            <button
+              key={col}
+              type="button"
+              onClick={() => onToggle(col)}
+              className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 font-mono text-[11px] transition ${
+                active
+                  ? 'border-primary/30 bg-primary/10 text-primary'
+                  : 'border-white/10 bg-white/5 text-muted-foreground hover:bg-white/10 hover:text-foreground'
+              }`}
+            >
+              {active && <Check className="h-2.5 w-2.5" />}
+              {col}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------ Data table ------------------------------ */
+
+interface DataTableProps {
+  records: Record<string, unknown>[];
+  columns: string[];
+  orderBy: string;
+  orderDir: 'asc' | 'desc';
+  onToggleSort: (col: string) => void;
+  activeRecordId: string | null;
+  selectedIds: Set<string>;
+  onRowClick: (r: Record<string, unknown>) => void;
+  onRowSelect: (id: string) => void;
+  onAllSelect: () => void;
+  allPageSelected: boolean;
+  somePageSelected: boolean;
+  onCopyId: (id: unknown) => void;
+  onDelete: (id: string) => void;
+  writable: boolean;
+  schemaByName: Map<string, SchemaField>;
+}
+
+function DataTable({
+  records,
+  columns,
+  orderBy,
+  orderDir,
+  onToggleSort,
+  activeRecordId,
+  selectedIds,
+  onRowClick,
+  onRowSelect,
+  onAllSelect,
+  allPageSelected,
+  somePageSelected,
+  onCopyId,
+  onDelete,
+  writable,
+  schemaByName,
+}: DataTableProps) {
+  return (
+    <table className="w-full min-w-max border-separate border-spacing-0 text-sm">
+      <thead className="sticky top-0 z-10 bg-[#14161b]">
+        <tr>
+          <th className="sticky left-0 z-20 border-b border-white/10 bg-[#14161b] px-3 py-2 text-left">
+            <input
+              type="checkbox"
+              checked={allPageSelected}
+              ref={(el) => {
+                if (el) el.indeterminate = !allPageSelected && somePageSelected;
+              }}
+              onChange={onAllSelect}
+              aria-label="Select all on page"
+              className="h-3.5 w-3.5 rounded accent-primary"
+            />
+          </th>
+          {columns.map((col) => {
+            const f = schemaByName.get(col);
+            const badge = f ? fieldBadge(f) : null;
+            const active = orderBy === col;
+            return (
+              <th
+                key={col}
+                className="border-b border-white/10 px-3 py-2 text-left font-medium"
+              >
                 <button
-                  onClick={() => setShowRecordModal(false)}
-                  className="p-3 text-white/50 hover:text-white hover:bg-white/10 rounded-xl transition-all duration-200"
+                  type="button"
+                  onClick={() => onToggleSort(col)}
+                  className="group inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground transition hover:text-foreground"
+                  aria-sort={active ? (orderDir === 'asc' ? 'ascending' : 'descending') : 'none'}
                 >
-                  <X className="h-5 w-5" />
+                  <span className="font-mono normal-case tracking-normal">{col}</span>
+                  {badge && (
+                    <span
+                      className={`inline-flex items-center rounded px-1 text-[9px] font-normal ${badge.className}`}
+                    >
+                      {badge.label}
+                    </span>
+                  )}
+                  {active ? (
+                    orderDir === 'asc' ? (
+                      <ArrowUp className="h-3 w-3 text-primary" />
+                    ) : (
+                      <ArrowDown className="h-3 w-3 text-primary" />
+                    )
+                  ) : (
+                    <ArrowUpDown className="h-3 w-3 opacity-0 transition group-hover:opacity-100" />
+                  )}
                 </button>
+              </th>
+            );
+          })}
+          <th className="sticky right-0 z-20 border-b border-white/10 bg-[#14161b] px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Actions
+          </th>
+        </tr>
+      </thead>
+      <tbody>
+        {records.map((record, rowIdx) => {
+          const id = typeof record.id === 'string' ? (record.id as string) : null;
+          const isSelected = id != null && selectedIds.has(id);
+          const isActive = id != null && id === activeRecordId;
+          return (
+            <tr
+              key={id ?? rowIdx}
+              onClick={() => onRowClick(record)}
+              className={`group cursor-pointer transition ${
+                isActive
+                  ? 'bg-primary/10'
+                  : isSelected
+                    ? 'bg-white/5'
+                    : 'hover:bg-white/[0.03]'
+              }`}
+            >
+              <td
+                className="sticky left-0 z-10 border-b border-white/5 bg-inherit px-3 py-2"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <input
+                  type="checkbox"
+                  checked={isSelected}
+                  onChange={() => id && onRowSelect(id)}
+                  disabled={id == null}
+                  aria-label={`Select row ${rowIdx + 1}`}
+                  className="h-3.5 w-3.5 rounded accent-primary"
+                />
+              </td>
+              {columns.map((col) => {
+                const value = record[col];
+                const badge = valueBadge(value);
+                return (
+                  <td key={col} className="border-b border-white/5 px-3 py-2">
+                    <div className="flex max-w-xs items-center gap-2">
+                      <span
+                        className={`inline-flex shrink-0 items-center rounded px-1 text-[9px] font-medium ${badge.className}`}
+                        title={badge.label}
+                      >
+                        {badge.label.charAt(0)}
+                      </span>
+                      <span className="truncate font-mono text-xs text-foreground">
+                        {formatCell(value, { max: 60 })}
+                      </span>
+                    </div>
+                  </td>
+                );
+              })}
+              <td
+                className="sticky right-0 z-10 border-b border-white/5 bg-inherit px-3 py-2 text-right"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-center justify-end gap-0.5">
+                  <button
+                    type="button"
+                    onClick={() => onRowClick(record)}
+                    aria-label="View record"
+                    className="rounded p-1 text-muted-foreground transition hover:bg-white/5 hover:text-foreground"
+                  >
+                    <Eye className="h-3.5 w-3.5" />
+                  </button>
+                  {id && (
+                    <button
+                      type="button"
+                      onClick={() => onCopyId(id)}
+                      aria-label="Copy ID"
+                      className="rounded p-1 text-muted-foreground transition hover:bg-white/5 hover:text-foreground"
+                    >
+                      <Copy className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                  {writable && id && (
+                    <button
+                      type="button"
+                      onClick={() => onDelete(id)}
+                      aria-label="Delete record"
+                      className="rounded p-1 text-muted-foreground transition hover:bg-red-500/10 hover:text-red-300"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
+              </td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  );
+}
+
+/* ------------------------------ Pagination ------------------------------ */
+
+interface PaginationProps {
+  page: number;
+  pages: number;
+  total: number;
+  limit: number;
+  onFirst: () => void;
+  onPrev: () => void;
+  onNext: () => void;
+  onLast: () => void;
+  pageJump: string;
+  onPageJumpChange: (v: string) => void;
+  onPageJumpSubmit: () => void;
+  searchFields: string[];
+  orderBy: string;
+  orderDir: 'asc' | 'desc';
+}
+
+function Pagination({
+  page,
+  pages,
+  total,
+  limit,
+  onFirst,
+  onPrev,
+  onNext,
+  onLast,
+  pageJump,
+  onPageJumpChange,
+  onPageJumpSubmit,
+  searchFields,
+  orderBy,
+  orderDir,
+}: PaginationProps) {
+  if (pages <= 0) return null;
+  const start = total === 0 ? 0 : (page - 1) * limit + 1;
+  const end = Math.min(total, page * limit);
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-white/10 bg-[#14161b] px-3 py-2">
+      <div className="flex flex-wrap items-center gap-3 text-[11px] text-muted-foreground">
+        <span className="tabular-nums">
+          <span className="text-foreground font-medium">{start.toLocaleString()}</span>–
+          <span className="text-foreground font-medium">{end.toLocaleString()}</span> of{' '}
+          <span className="text-foreground font-medium">{total.toLocaleString()}</span>
+        </span>
+        {orderBy && (
+          <span className="inline-flex items-center gap-1">
+            Sort: <span className="font-mono text-foreground">{orderBy}</span>
+            {orderDir === 'asc' ? (
+              <ArrowUp className="h-3 w-3" />
+            ) : (
+              <ArrowDown className="h-3 w-3" />
+            )}
+          </span>
+        )}
+        {searchFields.length > 0 && (
+          <span className="hidden sm:inline">
+            Searched {searchFields.length} string column{searchFields.length === 1 ? '' : 's'}
+          </span>
+        )}
+      </div>
+      <div className="flex items-center gap-1">
+        <button
+          type="button"
+          onClick={onFirst}
+          disabled={page <= 1}
+          aria-label="First page"
+          className="rounded p-1.5 text-muted-foreground transition hover:bg-white/5 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30"
+        >
+          <ChevronsLeft className="h-3.5 w-3.5" />
+        </button>
+        <button
+          type="button"
+          onClick={onPrev}
+          disabled={page <= 1}
+          aria-label="Previous page"
+          className="rounded p-1.5 text-muted-foreground transition hover:bg-white/5 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30"
+        >
+          <ChevronLeft className="h-3.5 w-3.5" />
+        </button>
+        <span className="text-[11px] tabular-nums text-muted-foreground">
+          Page{' '}
+          <input
+            type="text"
+            inputMode="numeric"
+            value={pageJump || page}
+            onChange={(e) => onPageJumpChange(e.target.value.replace(/\D/g, ''))}
+            onBlur={onPageJumpSubmit}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                onPageJumpSubmit();
+              }
+            }}
+            className="mx-1 w-10 rounded border border-white/10 bg-[#1a1b23] px-1 py-0.5 text-center text-foreground focus:border-primary/40 focus:outline-none"
+            aria-label="Page number"
+          />
+          of <span className="text-foreground">{pages}</span>
+        </span>
+        <button
+          type="button"
+          onClick={onNext}
+          disabled={page >= pages}
+          aria-label="Next page"
+          className="rounded p-1.5 text-muted-foreground transition hover:bg-white/5 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30"
+        >
+          <ChevronRight className="h-3.5 w-3.5" />
+        </button>
+        <button
+          type="button"
+          onClick={onLast}
+          disabled={page >= pages}
+          aria-label="Last page"
+          className="rounded p-1.5 text-muted-foreground transition hover:bg-white/5 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30"
+        >
+          <ChevronsRight className="h-3.5 w-3.5" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------- States --------------------------------- */
+
+function TableSkeleton({ columns }: { columns: number }) {
+  return (
+    <div className="animate-pulse p-3">
+      <div className="mb-2 flex gap-2">
+        {Array.from({ length: columns }).map((_, i) => (
+          <div key={i} className="h-4 w-24 rounded bg-white/10" />
+        ))}
+      </div>
+      {Array.from({ length: 8 }).map((_, i) => (
+        <div key={i} className="mb-1 flex gap-2">
+          {Array.from({ length: columns }).map((_, j) => (
+            <div key={j} className="h-5 w-24 rounded bg-white/5" />
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ErrorPanel({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-3 p-8 text-center">
+      <div className="flex h-10 w-10 items-center justify-center rounded-full border border-red-500/30 bg-red-500/10">
+        <AlertTriangle className="h-5 w-5 text-red-300" />
+      </div>
+      <div>
+        <p className="text-sm font-medium text-foreground">Could not load records</p>
+        <p className="mt-1 text-xs text-muted-foreground">{message}</p>
+      </div>
+      <button
+        type="button"
+        onClick={onRetry}
+        className="inline-flex items-center gap-1.5 rounded-md border border-white/10 bg-white/5 px-3 py-1.5 text-sm text-foreground transition hover:bg-white/10"
+      >
+        <RefreshCw className="h-3.5 w-3.5" />
+        Retry
+      </button>
+    </div>
+  );
+}
+
+function EmptyState({
+  hasSearch,
+  onClearSearch,
+}: {
+  hasSearch: boolean;
+  onClearSearch: () => void;
+}) {
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-3 p-8 text-center">
+      <Database className="h-8 w-8 text-muted-foreground" />
+      <div>
+        <p className="text-sm font-medium text-foreground">
+          {hasSearch ? 'No matching rows' : 'Table is empty'}
+        </p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          {hasSearch ? 'Try a different search term.' : 'Add data to see it here.'}
+        </p>
+      </div>
+      {hasSearch && (
+        <button
+          type="button"
+          onClick={onClearSearch}
+          className="inline-flex items-center gap-1.5 rounded-md border border-white/10 bg-white/5 px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground"
+        >
+          Clear search
+        </button>
+      )}
+    </div>
+  );
+}
+
+/* --------------------------- Detail modal ------------------------------ */
+
+interface RecordDetailModalProps {
+  tableName: string;
+  tableDisplayName: string;
+  record: Record<string, unknown>;
+  schemaByName: Map<string, SchemaField>;
+  writable: boolean;
+  onClose: () => void;
+  onDelete: (id: string) => void;
+}
+
+function RecordDetailModal({
+  tableName,
+  tableDisplayName,
+  record,
+  schemaByName,
+  writable,
+  onClose,
+  onDelete,
+}: RecordDetailModalProps) {
+  const [mode, setMode] = useState<'formatted' | 'json'>('formatted');
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, []);
+
+  const entries = Object.entries(record);
+  const recordId = typeof record.id === 'string' ? (record.id as string) : null;
+
+  const handleFieldCopy = async (key: string, value: unknown) => {
+    const text = typeof value === 'string' ? value : formatFull(value);
+    const ok = await copyToClipboard(text);
+    if (ok) {
+      setCopiedKey(key);
+      setTimeout(() => setCopiedKey((k) => (k === key ? null : k)), 1500);
+    }
+  };
+
+  const copyAll = async () => {
+    const ok = await copyToClipboard(JSON.stringify(record, null, 2));
+    if (ok) {
+      setCopiedKey('__all__');
+      setTimeout(() => setCopiedKey((k) => (k === '__all__' ? null : k)), 1500);
+    }
+  };
+
+  if (!mounted || typeof document === 'undefined') return null;
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[10001] flex items-center justify-center p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Record details"
+    >
+      <div
+        className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+        onClick={onClose}
+        aria-hidden="true"
+      />
+      <div className="relative flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-xl border border-white/10 bg-[#1a1b23] shadow-2xl">
+        <header className="flex items-center justify-between gap-3 border-b border-white/10 px-5 py-4">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-white/10 bg-white/5">
+              <Database className="h-4 w-4 text-primary" />
+            </div>
+            <div className="min-w-0">
+              <h2 className="truncate text-base font-semibold text-foreground">Record details</h2>
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
+                <span className="inline-flex items-center gap-1 rounded border border-white/10 bg-white/5 px-1.5 py-0.5 font-medium">
+                  {tableDisplayName}
+                </span>
+                {recordId && (
+                  <>
+                    <span>·</span>
+                    <span className="font-mono text-primary">{recordId}</span>
+                  </>
+                )}
               </div>
             </div>
-            
-            {/* Record Data */}
-            <div className="p-6 overflow-y-auto max-h-[60vh]">
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                {Object.entries(selectedRecord).map(([key, value]) => (
-                  <div key={key} className="bg-gradient-to-br from-white/5 to-white/10 border border-white/20 rounded-xl p-4 hover:border-white/30 transition-all duration-200">
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="flex items-center gap-3">
-                        <div className="w-6 h-6 bg-gradient-to-br from-[#00d9ff]/20 to-[#0099cc]/20 rounded-lg flex items-center justify-center">
-                          <span className="text-xs font-bold text-[#00d9ff]">
-                            {key.charAt(0).toUpperCase()}
-                          </span>
-                        </div>
-                        <span className="text-sm font-semibold text-white">{key}</span>
-                        <span className={`text-xs px-2 py-1 rounded-full font-medium ${getTypeColor(getColumnType(value))} bg-white/10`}>
-                          {getColumnType(value)}
+          </div>
+          <div className="flex items-center gap-1">
+            <div className="inline-flex overflow-hidden rounded-md border border-white/10">
+              <button
+                type="button"
+                onClick={() => setMode('formatted')}
+                className={`px-2 py-1 text-[11px] transition ${
+                  mode === 'formatted'
+                    ? 'bg-primary/15 text-primary'
+                    : 'bg-white/5 text-muted-foreground hover:bg-white/10 hover:text-foreground'
+                }`}
+              >
+                Formatted
+              </button>
+              <button
+                type="button"
+                onClick={() => setMode('json')}
+                className={`px-2 py-1 text-[11px] transition ${
+                  mode === 'json'
+                    ? 'bg-primary/15 text-primary'
+                    : 'bg-white/5 text-muted-foreground hover:bg-white/10 hover:text-foreground'
+                }`}
+              >
+                JSON
+              </button>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close"
+              className="rounded-md p-1.5 text-muted-foreground transition hover:bg-white/5 hover:text-foreground"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        </header>
+
+        <div className="flex-1 overflow-y-auto px-5 py-4">
+          {mode === 'formatted' ? (
+            <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+              {entries.map(([key, value]) => {
+                const field = schemaByName.get(key);
+                const badge = field ? fieldBadge(field) : valueBadge(value);
+                const BadgeIcon = badge.icon;
+                const isJsonLike =
+                  value !== null && typeof value === 'object' && !(value instanceof Date);
+                return (
+                  <div
+                    key={key}
+                    className="rounded-lg border border-white/10 bg-[#16181d] p-3"
+                  >
+                    <div className="mb-1.5 flex items-center justify-between gap-2">
+                      <div className="flex min-w-0 items-center gap-1.5">
+                        <BadgeIcon className="h-3 w-3 shrink-0 text-muted-foreground" />
+                        <span className="truncate font-mono text-xs text-foreground">{key}</span>
+                        <span
+                          className={`inline-flex shrink-0 items-center rounded px-1 text-[9px] ${badge.className}`}
+                        >
+                          {badge.label}
                         </span>
                       </div>
                       <button
-                        onClick={() => copyToClipboard(formatValue(value), key)}
-                        className="p-2 text-white/50 hover:text-white hover:bg-white/10 rounded-lg transition-all duration-200"
-                        title="Copy to clipboard"
+                        type="button"
+                        onClick={() => handleFieldCopy(key, value)}
+                        aria-label={`Copy ${key}`}
+                        className="shrink-0 rounded p-1 text-muted-foreground transition hover:bg-white/5 hover:text-foreground"
                       >
-                        {copiedField === key ? (
-                          <Check className="h-4 w-4 text-green-400" />
+                        {copiedKey === key ? (
+                          <Check className="h-3 w-3 text-emerald-400" />
                         ) : (
-                          <Copy className="h-4 w-4" />
+                          <Copy className="h-3 w-3" />
                         )}
                       </button>
                     </div>
-                    <div className="text-white/90 text-sm break-all">
-                      {typeof value === 'object' && value !== null ? (
-                        <pre className="whitespace-pre-wrap bg-black/20 p-3 rounded-lg border border-white/10 text-xs font-mono">
-                          {JSON.stringify(value, null, 2)}
+                    <div className="rounded border border-white/5 bg-black/20 p-2">
+                      {isJsonLike ? (
+                        <pre className="whitespace-pre-wrap break-words font-mono text-[11px] text-foreground/90">
+                          {formatFull(value)}
                         </pre>
                       ) : (
-                        <div className="bg-black/20 p-3 rounded-lg border border-white/10">
-                          <span className="font-mono text-sm">{formatValue(value)}</span>
-                        </div>
+                        <span className="break-words font-mono text-[11px] text-foreground/90">
+                          {formatFull(value)}
+                        </span>
                       )}
                     </div>
                   </div>
-                ))}
-              </div>
+                );
+              })}
             </div>
-            
-            {/* Footer */}
-            <div className="p-6 border-t border-white/20 bg-gradient-to-r from-[#1a1b23] to-[#0f1014]">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-4 text-sm text-white/50">
-                  <div className="flex items-center gap-2">
-                    <div className="w-2 h-2 bg-[#00d9ff] rounded-full"></div>
-                    <span>{Object.keys(selectedRecord).length} fields</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Copy className="h-3 w-3" />
-                    <span>Click copy icon to copy values</span>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={() => setShowRecordModal(false)}
-                    className="px-6 py-2 text-white/70 hover:text-white hover:bg-white/10 rounded-lg transition-all duration-200"
-                  >
-                    Close
-                  </button>
-                  <button
-                    onClick={() => confirmDelete(selectedTable, selectedRecord.id)}
-                    className="flex items-center gap-2 px-6 py-2 bg-gradient-to-r from-red-500/20 to-red-600/20 text-red-400 border border-red-500/30 rounded-lg hover:from-red-500/30 hover:to-red-600/30 transition-all duration-200 shadow-lg shadow-red-500/10"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                    Delete Record
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
+          ) : (
+            <pre className="whitespace-pre-wrap break-words rounded-lg border border-white/10 bg-[#16181d] p-3 font-mono text-xs text-foreground/90">
+              {JSON.stringify(record, null, 2)}
+            </pre>
+          )}
         </div>
-      )}
 
-      {/* Delete Confirmation Modal */}
-      {showDeleteConfirm && recordToDelete && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-[60] p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 overflow-hidden">
-            {/* Header */}
-            <div className="p-6 border-b border-gray-200">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
-                  <Trash2 className="h-5 w-5 text-red-600" />
-                </div>
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-900">Delete Record</h3>
-                  <p className="text-sm text-gray-500">This action cannot be undone</p>
-                </div>
-              </div>
-            </div>
-            
-            {/* Content */}
-            <div className="p-6">
-              <p className="text-gray-700 mb-4">
-                Are you sure you want to delete this record from the <strong>{tables.find(t => t.name === recordToDelete.table)?.displayName}</strong> table?
-              </p>
-              <div className="bg-red-50 border border-red-200 rounded-lg p-3">
-                <div className="flex items-start gap-2">
-                  <div className="w-4 h-4 bg-red-500 rounded-full flex-shrink-0 mt-0.5"></div>
-                  <div className="text-sm text-red-800">
-                    <strong>Warning:</strong> This will permanently remove the record and all associated data from the database.
-                  </div>
-                </div>
-              </div>
-            </div>
-            
-            {/* Footer */}
-            <div className="p-6 bg-gray-50 flex items-center justify-end gap-3">
+        <footer className="flex items-center justify-between gap-2 border-t border-white/10 bg-[#14161b] px-5 py-3">
+          <div className="text-[11px] text-muted-foreground">
+            <span className="tabular-nums">{entries.length}</span> fields
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={copyAll}
+              className="inline-flex items-center gap-1.5 rounded-md border border-white/10 bg-white/5 px-3 py-1.5 text-sm text-muted-foreground transition hover:bg-white/10 hover:text-foreground"
+            >
+              {copiedKey === '__all__' ? (
+                <Check className="h-4 w-4 text-emerald-400" />
+              ) : (
+                <Copy className="h-4 w-4" />
+              )}
+              Copy JSON
+            </button>
+            {writable && recordId && (
               <button
-                onClick={() => {
-                  setShowDeleteConfirm(false);
-                  setRecordToDelete(null);
-                }}
-                className="px-4 py-2 text-gray-700 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => {
-                  if (recordToDelete) {
-                    handleDeleteRecord(recordToDelete.table, recordToDelete.id);
-                  }
-                }}
-                className="px-4 py-2 bg-red-600 text-white hover:bg-red-700 rounded-lg transition-colors flex items-center gap-2"
+                type="button"
+                onClick={() => onDelete(recordId)}
+                className="inline-flex items-center gap-1.5 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-1.5 text-sm text-red-300 transition hover:bg-red-500/20"
               >
                 <Trash2 className="h-4 w-4" />
-                Delete Record
+                Delete
               </button>
-            </div>
+            )}
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-md border border-white/10 bg-white/5 px-3 py-1.5 text-sm text-muted-foreground transition hover:bg-white/10 hover:text-foreground"
+            >
+              Close
+            </button>
           </div>
-        </div>
-      )}
-    </div>
+        </footer>
+
+        {!writable && (
+          <div className="absolute left-5 bottom-[72px] inline-flex items-center gap-1 rounded-md border border-white/10 bg-[#14161b]/90 px-2 py-1 text-[10px] text-muted-foreground shadow-lg">
+            <Lock className="h-3 w-3" />
+            Read-only model — use the dedicated admin page for mutations
+          </div>
+        )}
+
+        <button
+          type="button"
+          onClick={() => {
+            if (recordId) void navigator.clipboard?.writeText(recordId);
+          }}
+          className="hidden"
+          aria-hidden="true"
+          data-testid="hidden-copy-trigger-reserved"
+        />
+        <HiddenKeyboardHandler tableName={tableName} />
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+function HiddenKeyboardHandler({ tableName }: { tableName: string }) {
+  // Keeps rule of hooks clean even if parent portal remounts.
+  useEffect(() => {
+    void tableName;
+  }, [tableName]);
+  return null;
+}
+
+/* --------------------------- Shortcuts dialog --------------------------- */
+
+function ShortcutsDialog({ onClose }: { onClose: () => void }) {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+  if (!mounted || typeof document === 'undefined') return null;
+
+  const items: Array<[string, string]> = [
+    ['/', 'Focus search'],
+    ['j / k', 'Next / previous row'],
+    ['r', 'Refresh'],
+    ['?', 'Toggle this help'],
+    ['Esc', 'Close dialog / picker'],
+  ];
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[10001] flex items-center justify-center p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Keyboard shortcuts"
+    >
+      <div
+        className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+        onClick={onClose}
+        aria-hidden="true"
+      />
+      <div className="relative w-full max-w-md overflow-hidden rounded-xl border border-white/10 bg-[#1a1b23] shadow-2xl">
+        <header className="flex items-center justify-between border-b border-white/10 px-5 py-4">
+          <h2 className="flex items-center gap-2 text-base font-semibold text-foreground">
+            <Keyboard className="h-4 w-4 text-primary" />
+            Keyboard shortcuts
+          </h2>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="rounded-md p-1.5 text-muted-foreground transition hover:bg-white/5 hover:text-foreground"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </header>
+        <ul className="divide-y divide-white/5">
+          {items.map(([keys, desc]) => (
+            <li key={keys} className="flex items-center justify-between px-5 py-2.5">
+              <span className="text-sm text-muted-foreground">{desc}</span>
+              <kbd className="rounded border border-white/10 bg-white/5 px-2 py-0.5 font-mono text-xs text-foreground">
+                {keys}
+              </kbd>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>,
+    document.body,
   );
 }

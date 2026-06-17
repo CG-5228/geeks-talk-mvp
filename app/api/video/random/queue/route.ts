@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { nanoid } from 'nanoid';
+import { rateLimit } from '@/lib/rateLimit';
+import { addVideoRoomMember } from '@/lib/videoRooms';
 
 // In-memory queue for video chat matching (use Redis in production)
 const videoQueue = new Map<string, {
@@ -15,9 +17,6 @@ const videoMatches = new Map<string, {
   roomName: string;
   createdAt: number;
 }>();
-
-// Rate limiting store
-const rateLimitStore = new Map<string, { count: number; resetTime: number }>();
 
 // Queue cleanup interval (remove stale entries after 5 minutes)
 const QUEUE_TTL = 5 * 60 * 1000;
@@ -42,26 +41,6 @@ setInterval(() => {
   });
 }, 60000); // Run every minute
 
-function checkRateLimit(odId: string, maxRequests: number = 10, windowMs: number = 60000): boolean {
-  const now = Date.now();
-  const userLimit = rateLimitStore.get(odId);
-  
-  if (userLimit) {
-    if (now < userLimit.resetTime) {
-      if (userLimit.count >= maxRequests) {
-        return false;
-      }
-      userLimit.count++;
-    } else {
-      rateLimitStore.set(odId, { count: 1, resetTime: now + windowMs });
-    }
-  } else {
-    rateLimitStore.set(odId, { count: 1, resetTime: now + windowMs });
-  }
-  
-  return true;
-}
-
 // POST /api/video/random/queue - Enter random video chat queue
 export async function POST(request: NextRequest) {
   const session = await getServerSession(authOptions);
@@ -71,10 +50,9 @@ export async function POST(request: NextRequest) {
 
   const userId = session.user.id;
 
-  if (!checkRateLimit(userId, 10, 60000)) {
-    return NextResponse.json({ 
-      error: 'Rate limit exceeded. Please try again later.' 
-    }, { status: 429 });
+  const rl = await rateLimit(`video-queue:${userId}`, 10, 60_000);
+  if (!rl.allowed) {
+    return NextResponse.json({ error: 'Rate limit exceeded. Please try again later.' }, { status: 429 });
   }
 
   try {
@@ -122,11 +100,9 @@ export async function POST(request: NextRequest) {
         createdAt: Date.now(),
       });
 
-      console.log('[Video Random Queue] Match created:', {
-        user1: userId,
-        user2: matchedUserId,
-        roomName,
-      });
+      // Authorize both matched peers for the room (token route checks this).
+      await addVideoRoomMember(roomName, userId, 10 * 60);
+      await addVideoRoomMember(roomName, matchedUserId, 10 * 60);
 
       return NextResponse.json({
         matched: true,
@@ -164,10 +140,9 @@ export async function GET(request: NextRequest) {
 
   const userId = session.user.id;
 
-  if (!checkRateLimit(userId, 30, 60000)) {
-    return NextResponse.json({ 
-      error: 'Rate limit exceeded. Please try again later.' 
-    }, { status: 429 });
+  const rl = await rateLimit(`video-queue:${userId}`, 30, 60_000);
+  if (!rl.allowed) {
+    return NextResponse.json({ error: 'Rate limit exceeded. Please try again later.' }, { status: 429 });
   }
 
   try {

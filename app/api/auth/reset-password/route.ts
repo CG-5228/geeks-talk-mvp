@@ -1,7 +1,13 @@
 import { NextResponse } from 'next/server';
 import { verifyEmailCode } from '@/lib/emailCode';
 import { hashPassword } from '@/lib/password';
+import { rateLimit } from '@/lib/rateLimit';
 import { db } from '@/lib/db';
+
+function getClientIp(req: Request): string {
+  const forwarded = req.headers.get('x-forwarded-for') || '';
+  return forwarded.split(',')[0]?.trim() || 'local';
+}
 
 export async function POST(req: Request) {
   try {
@@ -15,28 +21,54 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Password must be at least 8 characters long' }, { status: 400 });
     }
 
+    const normalizedEmail = String(email).trim().toLowerCase();
+    const ip = getClientIp(req);
+
+    // Bound brute force of the 6-digit reset code (per-email and per-IP). The
+    // per-code attempt counter is the primary defense; this caps total volume.
+    const rlEmail = await rateLimit(`reset:${normalizedEmail}`, 10, 60_000);
+    const rlIp = await rateLimit(`reset-ip:${ip}`, 30, 60_000);
+    if (!rlEmail.allowed || !rlIp.allowed) {
+      return NextResponse.json({ error: 'Too many attempts. Please try again later.' }, { status: 429 });
+    }
+
     // Verify the reset code
-    const result = await verifyEmailCode(email, code, 'reset');
+    const result = await verifyEmailCode(normalizedEmail, code, 'reset');
 
     if (!result.valid) {
       return NextResponse.json({ error: result.error }, { status: 400 });
     }
 
-    // Hash the new password
-    const hashedPassword = await hashPassword(newPassword);
+    // Resolve the account case-insensitively so a stored mixed-case email still
+    // matches the normalized address the code was issued against.
+    const user = await db.user.findFirst({
+      where: { email: { equals: normalizedEmail, mode: 'insensitive' } },
+      select: { id: true },
+    });
+    if (!user) {
+      return NextResponse.json({ error: 'Invalid or expired code' }, { status: 400 });
+    }
 
-    // Update the user's password
+    // Hash and set the new password.
+    const hashedPassword = await hashPassword(newPassword);
     await db.user.update({
-      where: { email },
-      data: { 
+      where: { id: user.id },
+      data: {
         hashedPassword,
-        emailVerified: new Date() // Mark email as verified if it wasn't already
-      }
+        emailVerified: new Date(), // Mark email as verified if it wasn't already
+      },
     });
 
-    return NextResponse.json({ 
-      success: true, 
-      message: 'Password reset successfully' 
+    // Invalidate any other outstanding reset codes for this email so a second
+    // valid code can't be replayed after the password has changed.
+    await db.emailCode.updateMany({
+      where: { email: normalizedEmail, purpose: 'reset', consumedAt: null },
+      data: { consumedAt: new Date() },
+    });
+
+    return NextResponse.json({
+      success: true,
+      message: 'Password reset successfully',
     });
 
   } catch (error) {

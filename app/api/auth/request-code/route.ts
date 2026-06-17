@@ -30,8 +30,8 @@ export async function POST(req: Request) {
     const ip = getClientIp(req);
 
     // Rate limiting by email and IP.
-    const rl = rateLimit(`email-code:${email}`);
-    const rlByIp = rateLimit(`email-code-ip:${ip}`, 20, 60_000);
+    const rl = await rateLimit(`email-code:${email}`);
+    const rlByIp = await rateLimit(`email-code-ip:${ip}`, 20, 60_000);
     if (!rl.allowed || !rlByIp.allowed) {
       return NextResponse.json({ error: 'Too many requests. Please try again later.' }, { status: 429 });
     }

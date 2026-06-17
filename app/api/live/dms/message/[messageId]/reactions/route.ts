@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { db } from '@/lib/db';
+import { publishMany } from '@/lib/liveBus';
+import { aggregateReactionsByMessage } from '@/lib/reactions';
 
 // POST /api/live/dms/message/[messageId]/reactions - Add reaction to DM message
 export async function POST(req: NextRequest, props: { params: Promise<{ messageId: string }> }) {
@@ -50,21 +52,11 @@ export async function POST(req: NextRequest, props: { params: Promise<{ messageI
       },
     });
 
+    let action: 'added' | 'removed';
     if (existingReaction) {
-      // Remove existing reaction
-      await db.messageReaction.delete({
-        where: { id: existingReaction.id },
-      });
-
-      // Real-time updates handled via polling
-
-      return NextResponse.json({
-        action: 'removed',
-        emoji,
-        message: 'Reaction removed',
-      });
+      await db.messageReaction.delete({ where: { id: existingReaction.id } });
+      action = 'removed';
     } else {
-      // Add new reaction
       await db.messageReaction.create({
         data: {
           messageId: messageId,
@@ -73,15 +65,29 @@ export async function POST(req: NextRequest, props: { params: Promise<{ messageI
           emoji: emoji,
         },
       });
-
-      // Real-time updates handled via polling
-
-      return NextResponse.json({
-        action: 'added',
-        emoji,
-        message: 'Reaction added',
-      });
+      action = 'added';
     }
+
+    try {
+      const map = await aggregateReactionsByMessage([messageId], 'dm');
+      publishMany(
+        [`user:${message.senderId}`, `user:${message.receiverId}`],
+        'reaction:updated',
+        {
+          messageId,
+          messageType: 'dm',
+          reactions: map[messageId] || [],
+        }
+      );
+    } catch (err) {
+      console.error('Failed to publish DM reaction update:', err);
+    }
+
+    return NextResponse.json({
+      action,
+      emoji,
+      message: action === 'added' ? 'Reaction added' : 'Reaction removed',
+    });
   } catch (error) {
     console.error('Error managing DM message reaction:', error);
     return NextResponse.json(
