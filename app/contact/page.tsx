@@ -212,9 +212,6 @@ export default function ContactPage() {
   return (
     <div className="relative min-h-screen">
       <ParticlesBackgroundClient density={25} zIndex={0} />
-      <div className="pointer-events-none fixed inset-0 z-[1]" aria-hidden>
-        <div className="absolute inset-0 opacity-[0.35] bg-[radial-gradient(60%_40%_at_50%_0%,rgba(0,220,255,0.18),transparent_60%)]" />
-      </div>
 
       <main className="relative z-[2] px-4 sm:px-6 lg:px-8 pt-16 pb-20">
         <div className="max-w-6xl mx-auto">
