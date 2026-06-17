@@ -180,7 +180,8 @@ export default function ContactPage() {
   if (!session?.user) {
     return (
       <div className="relative min-h-screen">
-        <ParticlesBackgroundClient density={20} zIndex={0} />
+        <div className="fixed inset-0 z-0 bg-[#0a0c10]" aria-hidden />
+        <ParticlesBackgroundClient density={20} zIndex={1} />
         <main className="relative z-[2] max-w-3xl mx-auto px-4 py-20">
           <div className="rounded-3xl border border-white/[0.08] bg-[color:var(--card-bg)]/60 backdrop-blur-xl p-8 text-center">
             <div className="inline-flex items-center gap-2 text-[11px] uppercase tracking-[0.2em] font-semibold text-[rgba(220,235,255,0.6)]">
@@ -211,7 +212,11 @@ export default function ContactPage() {
 
   return (
     <div className="relative min-h-screen">
-      <ParticlesBackgroundClient density={25} zIndex={0} />
+      {/* Solid dark base — hides the global blue-tinted background gradient on
+          this page. Sits below the particles (z-0 < particles z-1) and the
+          content (z-2), so particles and cards still render normally. */}
+      <div className="fixed inset-0 z-0 bg-[#0a0c10]" aria-hidden />
+      <ParticlesBackgroundClient density={25} zIndex={1} />
 
       <main className="relative z-[2] px-4 sm:px-6 lg:px-8 pt-16 pb-20">
         <div className="max-w-6xl mx-auto">
