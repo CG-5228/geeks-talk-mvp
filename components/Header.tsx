@@ -4,7 +4,6 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { Menu, X } from 'lucide-react';
-import ThemeSwitch from './ThemeSwitch';
 import UserMenu from './header/UserMenu';
 import { getLiveUrl } from '@/lib/getLiveUrl';
 
@@ -98,9 +97,6 @@ export default function Header() {
           </div>
 
           <div className="flex items-center gap-2 sm:gap-3 ml-auto whitespace-nowrap">
-            <div className="hidden sm:block">
-              <ThemeSwitch />
-            </div>
             <button
               onClick={goLive}
               type="button"
@@ -184,12 +180,6 @@ export default function Header() {
                 </Link>
               </div>
             )}
-            <div className="mt-3 flex items-center justify-between border-t border-white/[0.06] pt-3">
-              <span className="text-xs font-mono tracking-wide text-[rgba(220,235,255,0.55)]">
-                Theme
-              </span>
-              <ThemeSwitch />
-            </div>
           </nav>
         </div>
       </div>
